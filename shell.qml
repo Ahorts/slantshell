@@ -2,10 +2,10 @@ import Quickshell
 import Quickshell.Io
 import QtQuick
 
-// Simple Quickshell desktop. Run with:  qs -p /path/to/qs-desktop
+// slantshell: a quick demo Quickshell desktop. Run with:  qs -p /path/to/slantshell
 //
 // Launcher / app switcher IPC (bind these to a key in your Hyprland config):
-//   qs -p /path/to/qs-desktop ipc call launcher toggle
+//   qs -p /path/to/slantshell ipc call launcher toggle
 ShellRoot {
     id: root
 

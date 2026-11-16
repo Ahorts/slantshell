@@ -1,8 +1,8 @@
-# qs-desktop
+# slantshell
 
-A small custom desktop shell for [Quickshell](https://quickshell.org) on Hyprland, built with Claude Code
-for a Claude Builder Club session. It was iterated live: change something, look at a screenshot, give
-feedback, repeat.
+A quick demo desktop, put together with Claude Code at the Claude Builder Club. It's a small custom
+shell for [Quickshell](https://quickshell.org) on Hyprland with slanted panels, a dynamic island, and a few
+desktop widgets. It was built live: change something, look at a screenshot, give feedback, repeat.
 
 ## What's in it
 
@@ -29,8 +29,10 @@ feedback, repeat.
 
 ## Run
 
+Clone the repo, then:
+
 ```sh
-qs -p /path/to/qs-desktop
+qs -p /path/to/slantshell
 ```
 
 Only one notification daemon can run at a time, so stop other ones (mako, dunst, another shell) first.
@@ -38,13 +40,13 @@ Only one notification daemon can run at a time, so stop other ones (mako, dunst,
 ### Toggle the launcher
 
 ```sh
-qs -p /path/to/qs-desktop ipc call launcher toggle
+qs -p /path/to/slantshell ipc call launcher toggle
 ```
 
 Example Hyprland (Lua config) bind:
 
 ```lua
-hl.bind("SUPER + SPACE", hl.dsp.exec_cmd("qs -p /path/to/qs-desktop ipc call launcher toggle"))
+hl.bind("SUPER + SPACE", hl.dsp.exec_cmd("qs -p /path/to/slantshell ipc call launcher toggle"))
 ```
 
 Workspace clicks use `hyprctl dispatch 'hl.dsp.focus({ workspace = N })'`, the Lua-config dispatch syntax.
