@@ -153,7 +153,7 @@ PanelWindow {
         function onMutedChanged() { bar.showOsd("volume", bar.sink.audio.volume, bar.sink.audio.muted); }
     }
 
-    // Brightness: the kernel doesn't notify us, so poll the backlight files.
+    // Brightness: read the backlight files.
     readonly property string backlight: "intel_backlight"
     property real brightness: -1
     property real brightnessMax: 1
@@ -171,12 +171,14 @@ PanelWindow {
             bar.brightness = v;
         }
     }
-    Timer {
-        interval: 350
+    // The kernel announces backlight changes through udev, so react the moment it happens (no polling).
+    Process {
         running: true
-        repeat: true
-        onTriggered: curFile.reload()
+        command: ["udevadm", "monitor", "--kernel", "--subsystem-match=backlight"]
+        stdout: SplitParser { onRead: line => { if (line.includes("backlight")) curFile.reload(); } }
     }
+    // Slow safety net in case an event is missed.
+    Timer { interval: 2000; running: true; repeat: true; onTriggered: curFile.reload() }
 
     // The island's *size* follows this instead of `view`: when a notification ends, it holds the wide shape
     // until the text has faded out, so the text fades in place instead of being dragged by a shrinking edge.

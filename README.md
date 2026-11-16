@@ -27,7 +27,6 @@ desktop widgets. It was built live: change something, look at a screenshot, give
   `/usr/lib/qt6/bin/qsb --qt6 glass.frag -o glass.frag.qsb`). `Theme.glass` turns it off.
 - **Liquid gauges**: the dashboard's CPU / RAM / disk / battery are round glasses of rippling water that rise to
   the level
-- **Chamfered screen frame**: a thin accent frame with cut corners around the screen (`ipc call frame toggle`)
 - **Banded diagonal wipe**: a wallpaper switch sweeps three slanted palette-coloured bands across the screen and
   recolours the shell underneath them (`ipc call wipe test` plays it once)
 - **Ambient spectrum**: translucent audio bars along the bottom of the desktop while music plays

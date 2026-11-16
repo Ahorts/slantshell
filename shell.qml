@@ -14,7 +14,6 @@ ShellRoot {
     property bool launcherOpen: false
     property bool wallpapersOpen: false
     property bool dashboardOpen: false
-    property bool frame: true      // the chamfered screen frame; `ipc call frame toggle`
     // Hard window edges are the default for this shell (square corners, your own border kept).
     // Set to false to leave your Hyprland rounding alone. Toggle live with `ipc call sharp toggle`.
     property bool sharp: true
@@ -62,13 +61,6 @@ ShellRoot {
     }
 
     IpcHandler {
-        target: "frame"
-        function toggle(): void { root.frame = !root.frame; }
-        function on(): void { root.frame = true; }
-        function off(): void { root.frame = false; }
-    }
-
-    IpcHandler {
         target: "dashboard"
         function toggle(): void { root.dashboardOpen = !root.dashboardOpen; }
         function open(): void { root.dashboardOpen = true; }
@@ -89,7 +81,6 @@ ShellRoot {
             id: perScreen
             required property var modelData
 
-            ScreenFrame { screen: perScreen.modelData; active: root.frame }
             ShardWipe { screen: perScreen.modelData }
             Background { screen: perScreen.modelData; flappyAuto: root.flappyAuto }
             Island {
