@@ -9,7 +9,8 @@ desktop widgets. It was built live: change something, look at a screenshot, give
 - **Top bar** made of three slanted (parallelogram) panels:
   - left: launcher button and workspaces
   - centre, the **dynamic island**: shows the active window title, switches to the track when media is
-    playing (with controls on hover), and widens to show **notifications**
+    playing (with a live **cava audio visualizer** and controls on hover), widens to show
+    **notifications**, and pops up **volume / brightness** changes
   - right: system tray, volume, battery, clock
 - **App switcher / launcher** overlay: open windows plus installed apps, type to filter
 - **Desktop widgets**: clock with greeting, month calendar, CPU / RAM / disk / battery rings, and a
@@ -17,11 +18,20 @@ desktop widgets. It was built live: change something, look at a screenshot, give
 - **Wallpaper-aware colours**: the theme follows your matugen palette and updates live
 - Acts as the notification daemon (`org.freedesktop.Notifications`)
 
+### The outline is the UI
+
+The island's slanted outline doubles as a gauge. It **drains as a countdown** while a notification is
+shown (paused while you hover it), and it **fills like a meter** for volume and brightness changes.
+Nothing extra is drawn: the border you already see turns into the indicator.
+
 ## Requirements
 
 - Quickshell 0.3+ (tested on 0.3.2)
 - Hyprland (workspace and window info come from it)
 - PipeWire, UPower, and a StatusNotifier tray host for the matching bar items
+- [cava](https://github.com/karlstav/cava) for the island visualizer (it uses its own raw config, `cava.conf`)
+- A backlight device for brightness popups. The device name is `backlight` in `Island.qml`
+  (default `intel_backlight`; see `/sys/class/backlight/`)
 - Optional: [matugen](https://github.com/InioX/matugen) writing a Material You palette to
   `~/.local/state/quickshell/user/generated/colors.json`, and a wallpaper path in
   `~/.local/state/quickshell/user/generated/wallpaper/path.txt`. Without them the built-in default
