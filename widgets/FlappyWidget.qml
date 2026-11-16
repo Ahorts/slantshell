@@ -114,8 +114,10 @@ Card {
     }
 
     // Gentle idle bob while waiting to start.
+    // Only while hovered: an animation that loops forever keeps the whole desktop layer redrawing.
+    HoverHandler { id: hoverBob }
     SequentialAnimation {
-        running: card.phase === "ready"
+        running: card.phase === "ready" && hoverBob.hovered
         loops: Animation.Infinite
         NumberAnimation { target: card; property: "bob"; from: -5; to: 5; duration: 600; easing.type: Easing.InOutSine }
         NumberAnimation { target: card; property: "bob"; from: 5; to: -5; duration: 600; easing.type: Easing.InOutSine }
