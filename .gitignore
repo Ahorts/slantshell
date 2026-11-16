@@ -1,0 +1,4 @@
+.DS_Store
+*.log
+*.qmlc
+*.jsc
