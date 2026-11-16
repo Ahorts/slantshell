@@ -24,6 +24,7 @@ PanelWindow {
     id: bar
 
     signal launcherClicked()
+    signal dashboardClicked()
 
     readonly property int gap: 8
     readonly property int pillHeight: 40
@@ -46,7 +47,31 @@ PanelWindow {
 
     SystemClock { id: clock; precision: SystemClock.Seconds }
 
+    // Entrance: the three panels drop in one after another.
+    property real introL: 0
+    property real introC: 0
+    property real introR: 0
+    ParallelAnimation {
+        id: intro
+        running: true
+        NumberAnimation { target: bar; property: "introL"; to: 1; duration: 650; easing.type: Easing.OutBack; easing.overshoot: 1.4 }
+        SequentialAnimation {
+            PauseAnimation { duration: 130 }
+            NumberAnimation { target: bar; property: "introC"; to: 1; duration: 650; easing.type: Easing.OutBack; easing.overshoot: 1.4 }
+        }
+        SequentialAnimation {
+            PauseAnimation { duration: 260 }
+            NumberAnimation { target: bar; property: "introR"; to: 1; duration: 650; easing.type: Easing.OutBack; easing.overshoot: 1.4 }
+        }
+    }
+
     Process { id: wsSwitch }
+    // Scroll over the workspaces to move between them: up = previous, down = next
+    // (cycles through the workspaces that exist).
+    property real wheelAccum: 0
+    function stepWorkspace(delta) {
+        Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.focus({ workspace = \"e" + (delta > 0 ? "+1" : "-1") + "\" })"]);
+    }
     function gotoWorkspace(n) {
         // Hyprland 0.5x uses Lua dispatchers, so go through hyprctl with the Lua form.
         wsSwitch.command = ["hyprctl", "dispatch", "hl.dsp.focus({ workspace = " + n + " })"];
@@ -56,9 +81,21 @@ PanelWindow {
     PwObjectTracker { objects: [Pipewire.defaultAudioSink] }
     readonly property var sink: Pipewire.defaultAudioSink
 
-    // The player that is currently playing, if any.
-    readonly property var player: Mpris.players.values.find(p => p.isPlaying) ?? null
+    // The player that is currently playing, if any (see Audio.qml).
+    readonly property var player: Audio.player
     readonly property bool mediaMode: player !== null
+
+    // When the song changes, the island announces the full name for a few seconds, then shrinks
+    // back to the small visualizer icon next to the window title.
+    property bool trackFlash: false
+    readonly property string trackKey: player ? (player.trackArtist + "|" + player.trackTitle) : ""
+    onTrackKeyChanged: {
+        if (trackKey !== "") {
+            trackFlash = true;
+            trackTimer.restart();
+        }
+    }
+    Timer { id: trackTimer; interval: 4200; onTriggered: bar.trackFlash = false }
 
     // Notification currently shown in the island (see Notifs.qml). `shownNotif` keeps the last
     // one around so the content can fade out instead of blanking.
@@ -74,8 +111,9 @@ PanelWindow {
     readonly property bool notifHasBody: shownNotif !== null && (shownNotif.body ?? "") !== ""
     readonly property bool notifCritical: shownNotif !== null && shownNotif.urgency === NotificationUrgency.Critical
 
-    // Notification countdown: the island outline drains over the notification's lifetime
-    // (paused while hovered). When it runs out, move on to the next notification.
+    // Notification countdown: the island outline starts full (the two arcs meeting at the top-middle) and
+    // shrinks away from the bottom, the remainder retreating toward the top-middle, as time runs out (paused while hovered). When it's gone the
+    // notification goes away and the next one (if any) takes its place.
     property real notifProgress: 1
     NumberAnimation {
         id: notifDrain
@@ -89,7 +127,7 @@ PanelWindow {
             if (n.urgency === NotificationUrgency.Critical) return 12000;
             return n.expireTimeout > 0 ? n.expireTimeout * 1000 : 5000;
         }
-        paused: islandHover.hovered
+        paused: bar.notifMode && islandHover.hovered
         running: bar.notifMode
         onFinished: Notifs.next()
     }
@@ -140,42 +178,58 @@ PanelWindow {
         onTriggered: curFile.reload()
     }
 
-    // ---- Audio visualizer (cava) for the media view ----
-    property var bars: []
-    Process {
-        id: cava
-        running: bar.mediaMode
-        command: ["cava", "-p", Quickshell.shellPath("cava.conf")]
-        stdout: SplitParser {
-            onRead: line => {
-                const v = line.split(";").filter(x => x !== "").map(Number);
-                if (v.length > 0) bar.bars = v;
-            }
+    // The island's *size* follows this instead of `view`: when a notification ends, it holds the wide shape
+    // until the text has faded out, so the text fades in place instead of being dragged by a shrinking edge.
+    property string layoutView: "title"
+    onViewChanged: {
+        if (view === "notif" || layoutView !== "notif") {
+            layoutView = view;
+            layoutDelay.stop();
+        } else {
+            layoutDelay.restart();
         }
     }
+    Timer { id: layoutDelay; interval: 280; onTriggered: bar.layoutView = bar.view }
 
     // Which view the island is showing (priority order).
-    readonly property string view: notifMode ? "notif" : (osdKind !== "" ? "osd" : (mediaMode ? "media" : "title"))
+    readonly property string view: notifMode ? "notif" : (osdKind !== "" ? "osd" : ((mediaMode && (trackFlash || islandHover.hovered)) ? "media" : "title"))
 
     // =========================================================== LEFT: launcher + workspaces
     SkewPanel {
         id: leftPill
-        x: bar.gap
-        y: bar.gap
+        glass: true
+        opacity: Math.min(1, bar.introL * 1.5)
+        transform: Translate { y: (1 - bar.introL) * -70 }
+        x: 0
+        y: bar.gap                            // floats level with the island; only the outer side touches the screen edge
         height: bar.pillHeight
-        skew: bar.skew
+        skewL: 0                               // outer edge is straight (it is the screen edge)
+        skewR: -bar.skew                       // inner edge leans "\\"
+        strokeLeft: false
         width: leftRow.implicitWidth + bar.skew + 28
         Behavior on width { NumberAnimation { duration: bar.smooth; easing.type: Easing.OutCubic } }
 
+        // Mouse wheel / touchpad scroll over the workspaces switches workspace.
+        WheelHandler {
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+            onWheel: event => {
+                bar.wheelAccum += event.angleDelta.y;
+                if (Math.abs(bar.wheelAccum) >= 120) {
+                    bar.stepWorkspace(bar.wheelAccum > 0 ? -1 : 1);
+                    bar.wheelAccum = 0;
+                }
+            }
+        }
+
         RowLayout {
             id: leftRow
-            anchors { left: parent.left; leftMargin: 14 + bar.skew / 2; verticalCenter: parent.verticalCenter }
+            anchors { left: parent.left; leftMargin: 14; verticalCenter: parent.verticalCenter }
             spacing: 10
 
             SkewPanel {
                 Layout.preferredWidth: 32
                 Layout.preferredHeight: 24
-                skew: 6
+                skew: -6
                 strokeWidth: 0
                 fill: launchArea.containsMouse ? Theme.accent : Theme.surface
 
@@ -214,7 +268,7 @@ PanelWindow {
                         Layout.preferredHeight: 24
                         opacity: shown ? 1 : 0
                         visible: opacity > 0.01
-                        skew: 6
+                        skew: -6
                         strokeWidth: 0
                         fill: focused ? Theme.accent : Theme.surface
 
@@ -243,21 +297,26 @@ PanelWindow {
     // =========================================================== CENTRE: the island
     SkewPanel {
         id: island
-        skew: bar.skew
+        glass: true
+        opacity: Math.min(1, bar.introC * 1.5)
+        transform: Translate { y: (1 - bar.introC) * -70 }
+        skewL: -bar.skew   // both slants: "\\" on the left edge, "/" on the right (wider at the top)
+        skewR: bar.skew
         y: bar.gap
         x: Math.round((bar.width - width) / 2)
         // Size follows whichever view is active, with a floor so it never collapses.
-        width: bar.view === "notif" ? 500
-             : bar.view === "osd" ? 250
-             : Math.max(140, (bar.view === "media" ? mediaView.implicitWidth : titleView.implicitWidth) + 36)
+        width: bar.layoutView === "notif" ? 500
+             : bar.layoutView === "osd" ? 250
+             : Math.max(140, (bar.layoutView === "media" ? mediaView.implicitWidth : titleView.implicitWidth) + 36)
         // Outline gauge: notification countdown / volume & brightness level.
         progress: bar.view === "notif" ? bar.notifProgress : (bar.view === "osd" ? bar.osdValue : -1)
+        gaugeFromTop: bar.view === "notif"   // countdown: the bottom disappears first, the rest retreats to the top
         progressColor: bar.view === "notif" && bar.notifCritical ? Theme.warn
                      : (bar.view === "osd" && bar.osdMuted ? Theme.fgDim : Theme.accent)
         Behavior on progress { enabled: bar.view === "osd"; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
         height: bar.pillHeight
         stroke: bar.notifMode && bar.notifCritical ? Theme.warn : Theme.accentContainer
-        Behavior on width { NumberAnimation { duration: bar.smooth; easing.type: Easing.OutCubic } }
+        Behavior on width { NumberAnimation { duration: 460; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
 
         HoverHandler { id: islandHover }
 
@@ -275,7 +334,7 @@ PanelWindow {
         // ---- Notification view ----
         RowLayout {
             id: notifView
-            anchors { verticalCenter: parent.verticalCenter; left: parent.left; leftMargin: 16 }
+            anchors.centerIn: parent
             spacing: 12
             opacity: bar.notifMode ? 1 : 0
             visible: opacity > 0.01
@@ -326,7 +385,7 @@ PanelWindow {
             id: osdView
             anchors.centerIn: parent
             spacing: 12
-            opacity: bar.view === "osd" ? 1 : 0
+            opacity: bar.layoutView === "osd" ? 1 : 0
             visible: opacity > 0.01
             Behavior on opacity { NumberAnimation { duration: 240 } }
 
@@ -354,20 +413,46 @@ PanelWindow {
         }
 
         // ---- Window title view ----
-        Text {
+        RowLayout {
             id: titleView
             anchors.centerIn: parent
-            readonly property string value: ToplevelManager.activeToplevel?.title ?? ""
-            text: value !== "" ? value : "Desktop"
-            color: Theme.fg
-            elide: Text.ElideRight
-            width: Math.min(implicitWidth, 420)
-            horizontalAlignment: Text.AlignHCenter
-            font.family: Theme.font
-            font.pixelSize: Theme.fontSize
-            opacity: bar.view === "title" ? 1 : 0
+            spacing: 10
+            opacity: bar.layoutView === "title" ? 1 : 0
             visible: opacity > 0.01
             Behavior on opacity { NumberAnimation { duration: 240 } }
+
+            // Small visualizer icon while music plays.
+            Row {
+                visible: bar.mediaMode
+                Layout.alignment: Qt.AlignVCenter
+                spacing: 2
+                height: 18
+
+                Repeater {
+                    model: 6
+
+                    Rectangle {
+                        required property int index
+                        readonly property real level: (Audio.bars[index * 2 + 1] ?? 0) / 100
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 3
+                        height: Math.max(3, level * 18)
+                        radius: 1.5
+                        color: Qt.tint(Theme.accent, Qt.rgba(Theme.accent2.r, Theme.accent2.g, Theme.accent2.b, index / 8))
+                        Behavior on height { NumberAnimation { duration: 70 } }
+                    }
+                }
+            }
+
+            Text {
+                Layout.maximumWidth: 380
+                readonly property string value: ToplevelManager.activeToplevel?.title ?? ""
+                text: value !== "" ? value : "Desktop"
+                color: Theme.fg
+                elide: Text.ElideRight
+                font.family: Theme.font
+                font.pixelSize: Theme.fontSize
+            }
         }
 
         // ---- Media view ----
@@ -375,7 +460,7 @@ PanelWindow {
             id: mediaView
             anchors.centerIn: parent
             spacing: 10
-            opacity: bar.view === "media" ? 1 : 0
+            opacity: bar.layoutView === "media" ? 1 : 0
             visible: opacity > 0.01
             Behavior on opacity { NumberAnimation { duration: 240 } }
 
@@ -398,7 +483,7 @@ PanelWindow {
 
                     Rectangle {
                         required property int index
-                        readonly property real level: (bar.bars[index] ?? 0) / 100
+                        readonly property real level: (Audio.bars[index] ?? 0) / 100
                         anchors.verticalCenter: parent.verticalCenter
                         width: 3
                         height: Math.max(3, level * 22)
@@ -471,16 +556,21 @@ PanelWindow {
     // =========================================================== RIGHT: tray, volume, battery, clock
     SkewPanel {
         id: rightPill
-        y: bar.gap
+        glass: true
+        opacity: Math.min(1, bar.introR * 1.5)
+        transform: Translate { y: (1 - bar.introR) * -70 }
+        y: bar.gap                            // floats level with the island; only the outer side touches the screen edge
         height: bar.pillHeight
-        skew: bar.skew
-        x: bar.width - width - bar.gap
+        skewL: bar.skew                        // inner edge leans "/"
+        skewR: 0                               // outer edge is straight (it is the screen edge)
+        strokeRight: false
+        x: bar.width - width
         width: rightRow.implicitWidth + bar.skew + 28
         Behavior on width { NumberAnimation { duration: bar.smooth; easing.type: Easing.OutCubic } }
 
         RowLayout {
             id: rightRow
-            anchors { right: parent.right; rightMargin: 14 + bar.skew / 2; verticalCenter: parent.verticalCenter }
+            anchors { right: parent.right; rightMargin: 14; verticalCenter: parent.verticalCenter }
             spacing: 14
 
             // ---- System tray ----
@@ -581,6 +671,12 @@ PanelWindow {
                 font.family: Theme.font
                 font.pixelSize: Theme.fontSize
                 font.bold: true
+
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: bar.dashboardClicked()
+                }
             }
         }
     }

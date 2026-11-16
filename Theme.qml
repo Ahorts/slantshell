@@ -33,14 +33,76 @@ Singleton {
     property color warn: "#ffb4ab"
     property color good: "#c5d57a"
 
+    Behavior on bg { ColorAnimation { duration: 700 } }
+    Behavior on bgAlt { ColorAnimation { duration: 700 } }
+    Behavior on surface { ColorAnimation { duration: 700 } }
+    Behavior on fg { ColorAnimation { duration: 700 } }
+    Behavior on fgDim { ColorAnimation { duration: 700 } }
+    Behavior on accent { ColorAnimation { duration: 700 } }
+    Behavior on accent2 { ColorAnimation { duration: 700 } }
+    Behavior on accentContainer { ColorAnimation { duration: 700 } }
+    Behavior on accentText { ColorAnimation { duration: 700 } }
+    Behavior on warn { ColorAnimation { duration: 700 } }
+    Behavior on good { ColorAnimation { duration: 700 } }
+
+    // Frosted-glass panels (blurred wallpaper behind them). Turn off to get flat panels.
+    property bool glass: true
+
     readonly property string font: "Sans Serif"
     readonly property int fontSize: 13
     readonly property int radius: 12
     readonly property int spacing: 8
 
-    function apply(json) {
+    // Parse a palette (our colors.json, or `matugen --json`) into a flat { name: "#rrggbb" } object, or null.
+    function flatten(json) {
         let c;
-        try { c = JSON.parse(json); } catch (e) { console.warn("Theme: could not parse colors.json:", e); return; }
+        try { c = JSON.parse(json); } catch (e) { console.warn("Theme: could not parse colors.json:", e); return null; }
+        // `matugen --json` nests colours as { name: { dark: { color }, light: {...}, default: {...} } }; take the
+        // dark variant and flatten to { name: "#rrggbb" }.
+        if (c.colors) {
+            const flat = {};
+            for (const k in c.colors) {
+                const v = c.colors[k];
+                flat[k] = (v.dark ?? v.default ?? v).color ?? v.color;
+            }
+            c = flat;
+        }
+        return c;
+    }
+
+    // Banded diagonal wipe (see ShardWipe.qml): a wallpaper switch does not recolour the shell at once. It stages
+    // the new palette and asks for a wipe; the wipe calls commit() when its bands cover the screen, so the
+    // colours change underneath them. If nothing answers, a fallback timer commits anyway.
+    property bool wipe: true
+    property string pendingJson: ""
+    property bool pendingPush: false
+    property var wipeColors: []
+    signal wipeRequested()
+
+    function apply(json, pushToHyprland) {
+        if (!(pushToHyprland && wipe)) { applyNow(json, pushToHyprland); return; }
+        const c = flatten(json);
+        if (!c) return;
+        pendingJson = json;
+        pendingPush = pushToHyprland;
+        wipeColors = [c.primary_container ?? accentContainer, c.primary ?? accent, c.tertiary ?? accent2];
+        wipeRequested();
+        commitFallback.restart();
+    }
+
+    function commit() {
+        if (pendingJson === "") return;
+        const j = pendingJson, p = pendingPush;
+        pendingJson = "";
+        commitFallback.stop();
+        applyNow(j, p);
+    }
+
+    Timer { id: commitFallback; interval: 1800; onTriggered: root.commit() }
+
+    function applyNow(json, pushToHyprland) {
+        const c = flatten(json);
+        if (!c) return;
         if (c.surface) bg = c.surface;
         if (c.surface_container) bgAlt = c.surface_container;
         if (c.surface_container_high) surface = c.surface_container_high;
@@ -51,13 +113,67 @@ Singleton {
         if (c.primary_container) accentContainer = c.primary_container;
         if (c.on_primary) accentText = c.on_primary;
         if (c.error) warn = c.error;
+
+        // Wallpaper switch: also recolour Hyprland's window borders live, with the same mapping as the
+        // matugen template (active = primary_container, inactive = surface_container_low). Nothing is
+        // written to disk, so a Hyprland config reload brings back whatever colors.lua says.
+        if (pushToHyprland && c.primary_container && c.surface_container_low && c.surface) {
+            const hex = v => v.replace("#", "");
+            hyprColors.command = ["hyprctl", "eval",
+                "hl.config({ general = { col = { active_border = \"rgba(" + hex(c.primary_container) + "FF)\", "
+                + "inactive_border = \"rgba(" + hex(c.surface_container_low) + "33)\" } }, "
+                + "misc = { background_color = \"rgba(" + hex(c.surface) + "FF)\" } })"];
+            hyprColors.running = true;
+        }
+    }
+
+    // Recolour straight from an image, without touching any files or other apps
+    // (matugen dry-run). Used by the wallpaper switcher.
+    // Recolour for a newly applied wallpaper. If an `ii` (illogical-impulse) setup is present, run its
+    // theming script in the background: it rebuilds the system palette and re-themes apps such as kitty,
+    // GTK and KDE, and the new palette reaches the shell through the colors.json watcher below.
+    // Without it (or if it fails) fall back to a colours-only dry run that needs just `matugen`.
+    readonly property string themeScript: Quickshell.env("HOME") + "/.config/quickshell/ii/scripts/colors/switchwall.sh"
+    property bool pushPending: false
+
+    function generateFrom(imagePath) {
+        pushPending = true;
+        themeProc.imagePath = imagePath;
+        themeProc.command = ["sh", "-c",
+            'if [ -x "$1" ]; then exec "$1" --image "$2" --noswitch; else exit 127; fi',
+            "sh", themeScript, imagePath];
+        themeProc.running = true;
+    }
+
+    Process {
+        id: themeProc
+        property string imagePath: ""
+        onExited: (exitCode, exitStatus) => {
+            if (exitCode === 0) colorsFile.reload();          // make sure the new palette is picked up
+            else root.dryRun(themeProc.imagePath);            // no ii script, or it failed
+        }
+    }
+
+    function dryRun(imagePath) {
+        gen.command = ["matugen", "image", imagePath, "--dry-run", "--json", "hex", "--mode", "dark",
+                       "--source-color-index", "0", "--type", "scheme-tonal-spot", "--quiet"];
+        gen.running = true;
+    }
+    Process { id: hyprColors }
+    Process {
+        id: gen
+        stdout: StdioCollector { onStreamFinished: root.apply(text, true) }
     }
 
     FileView {
+        id: colorsFile
         path: root.colorsPath
         watchChanges: true
         onFileChanged: reload()
-        onLoaded: root.apply(text())
+        onLoaded: {
+            root.apply(text(), root.pushPending);   // after a wallpaper switch, also recolour Hyprland borders
+            root.pushPending = false;
+        }
     }
 
     FileView {

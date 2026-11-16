@@ -18,7 +18,7 @@ Card {
     readonly property var battery: UPower.displayDevice
     readonly property bool hasBattery: battery !== null && battery.isPresent && battery.isLaptopBattery
 
-    width: col.implicitWidth + 36
+    width: 300
     height: col.implicitHeight + 36
 
     function parseStat(t) {
@@ -88,13 +88,16 @@ Card {
             font.bold: true
         }
 
-        RowLayout {
-            spacing: 14
+        GridLayout {
+            Layout.alignment: Qt.AlignHCenter
+            columns: 2
+            columnSpacing: 22
+            rowSpacing: 10
 
-            Ring { value: card.cpu; color: Theme.accent; label: "CPU" }
-            Ring { value: card.mem; color: Theme.accent2; label: "RAM" }
-            Ring { value: card.disk; color: card.disk > 0.9 ? Theme.warn : Theme.accentContainer; label: "Disk" }
-            Ring {
+            LiquidOrb { value: card.cpu; color: Theme.accent; label: "CPU" }
+            LiquidOrb { value: card.mem; color: Theme.accent2; label: "RAM" }
+            LiquidOrb { value: card.disk; color: card.disk > 0.9 ? Theme.warn : Theme.accentContainer; label: "Disk" }
+            LiquidOrb {
                 visible: card.hasBattery
                 value: card.hasBattery ? card.battery.percentage : 0
                 color: card.hasBattery && card.battery.percentage < 0.2 ? Theme.warn : Theme.good
@@ -103,6 +106,7 @@ Card {
         }
 
         Text {
+            Layout.alignment: Qt.AlignHCenter
             text: card.uptime
             color: Theme.fgDim
             font.family: Theme.font

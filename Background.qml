@@ -9,6 +9,8 @@ import "widgets"
 PanelWindow {
     id: bg
 
+    property bool flappyAuto: false
+
     WlrLayershell.layer: WlrLayer.Bottom
     WlrLayershell.namespace: "qs-desktop-widgets"
     exclusionMode: ExclusionMode.Ignore
@@ -21,27 +23,26 @@ PanelWindow {
     mask: Region {
         regions: [
             Region { item: leftColumn },
-            Region { item: stats },
             Region { item: flappy }
         ]
+    }
+
+    // Ambient audio spectrum along the bottom (click-through, only visible while music plays)
+    SpectrumBars {
+        anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
     }
 
     Column {
         id: leftColumn
         anchors { left: parent.left; top: parent.top; leftMargin: 64; topMargin: 96 }
-        spacing: 28
+        spacing: 12
 
-        ClockWidget {}
-        CalendarWidget {}
+        PulseClock {}
     }
 
     FlappyWidget {
         id: flappy
+        auto: bg.flappyAuto
         anchors { right: parent.right; top: parent.top; rightMargin: 48; topMargin: 96 }
-    }
-
-    StatsWidget {
-        id: stats
-        anchors { right: parent.right; bottom: parent.bottom; rightMargin: 48; bottomMargin: 48 }
     }
 }

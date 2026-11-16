@@ -20,6 +20,7 @@ Card {
     readonly property real pipeSpacing: 170
 
     // ---- State ----
+    property bool auto: false        // autopilot (shell: `ipc call flappy on`)
     property string phase: "ready"   // ready | playing | dead
     property int score: 0
     property int best: 0
@@ -64,7 +65,19 @@ Card {
         else if (phase === "dead" && canRestart) reset();
     }
 
+    // Autopilot: aim a little below the middle of the next gap and flap when below that line.
+    function botThink() {
+        let best = null;
+        for (let i = 0; i < pipes.length; i++) {
+            const p = pipes[i];
+            if (p.x + pipeW > birdX - birdR && (best === null || p.x < best.x)) best = p;
+        }
+        const target = best ? best.gapY + 18 : areaH / 2;
+        if (birdY > target && vy > -120) vy = flapSpeed;
+    }
+
     function step(dt) {
+        if (auto) botThink();
         vy += gravity * dt;
         birdY += vy * dt;
 
@@ -108,6 +121,14 @@ Card {
         NumberAnimation { target: card; property: "bob"; from: 5; to: -5; duration: 600; easing.type: Easing.InOutSine }
     }
 
+    // Autopilot: start and restart games on its own.
+    Timer {
+        running: card.auto
+        interval: 300
+        repeat: true
+        onTriggered: if (card.phase === "ready" || (card.phase === "dead" && card.canRestart)) card.flap()
+    }
+
     Timer { id: restartLock; interval: 450; onTriggered: card.canRestart = true }
 
     component PipeItem: Item {
@@ -141,7 +162,7 @@ Card {
 
         Text {
             width: parent.width - scoreText.width - 8
-            text: "Flappy"
+            text: card.auto ? "Flappy · auto" : "Flappy"
             color: Theme.fgDim
             font.family: Theme.font
             font.pixelSize: Theme.fontSize

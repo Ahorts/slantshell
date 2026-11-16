@@ -1,6 +1,11 @@
 singleton Theme 1.0 Theme.qml
 singleton Notifs 1.0 Notifs.qml
+singleton Audio 1.0 Audio.qml
 Island 1.0 Island.qml
 SkewPanel 1.0 SkewPanel.qml
+ScreenFrame 1.0 ScreenFrame.qml
+ShardWipe 1.0 ShardWipe.qml
+Dashboard 1.0 Dashboard.qml
+WallpaperPicker 1.0 WallpaperPicker.qml
 Background 1.0 Background.qml
 Launcher 1.0 Launcher.qml
