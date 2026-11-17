@@ -58,6 +58,7 @@ Scope {
         target: "lock"
         function test(): void { root.lock(true); }
         function lock(): void { root.lock(false); }
+        function isLocked(): bool { return root.locked; }
     }
 
     WlSessionLock {

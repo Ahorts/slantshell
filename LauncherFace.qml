@@ -21,6 +21,7 @@ PanelWindow {
     id: win
 
     property bool open: false
+    property var onlyWs: []                  // when not empty: only windows on these workspaces (used for recordings)
     signal closeRequested()
 
     readonly property bool onFocusedScreen: (Quickshell.env("SLANT_TEST_ANYSCREEN") === "1" || Quickshell.env("SLANT_TEST_ANYSCREEN") === screen?.name || (!Quickshell.env("SLANT_TEST_ANYSCREEN") && Hyprland.focusedMonitor?.name === screen?.name))
@@ -128,6 +129,7 @@ PanelWindow {
             const entry = DesktopEntries.heuristicLookup(aid);
             let ws = "";
             for (const h of Hyprland.toplevels.values) if (h.wayland === t) { ws = h.workspace ? String(h.workspace.name || h.workspace.id) : ""; break; }
+            if (win.onlyWs.length > 0 && !win.onlyWs.includes(ws)) continue;
             winList.push({
                 app: entry ? entry.name : aid,
                 ws: ws,

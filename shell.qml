@@ -14,6 +14,7 @@ ShellRoot {
     readonly property bool keepAwake: Idle.inhibit
 
     property bool launcherOpen: false
+    property var launcherOnlyWs: []          // demo: list only windows on these workspaces (empty = all)
     property bool wallpapersOpen: false
     property bool dashboardOpen: false
     property bool powerOpen: false
@@ -62,6 +63,9 @@ ShellRoot {
         function on(): void { Theme.lightning = true; }
         function off(): void { Theme.lightning = false; }
         function status(): string { return (Theme.lightning ? "on" : "off") + " | live bolts: " + Theme.sparkUsers; }
+        // the window-border lightning on its own (e.g. off for a recording full of opening windows)
+        function windowsOn(): void { Theme.windowLightning = true; }
+        function windowsOff(): void { Theme.windowLightning = false; }
     }
 
     IpcHandler {
@@ -83,6 +87,9 @@ ShellRoot {
         function toggle(): void { root.launcherOpen = !root.launcherOpen; }
         function open(): void { root.launcherOpen = true; }
         function close(): void { root.launcherOpen = false; }
+        function isOpen(): bool { return root.launcherOpen; }
+        // for recordings: only list windows on these workspaces ("6,7"); "" lists everything again
+        function only(list: string): void { root.launcherOnlyWs = list === "" ? [] : list.split(",").map(x => x.trim()); }
     }
 
     // `ipc call wipe test` plays the banded wipe once (it recolours nothing).
@@ -205,6 +212,7 @@ ShellRoot {
             LauncherFace {
                 screen: perScreen.modelData
                 open: root.launcherOpen
+                onlyWs: root.launcherOnlyWs
                 onCloseRequested: root.launcherOpen = false
             }
             ConnectivityFace {

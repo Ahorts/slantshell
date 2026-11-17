@@ -13,7 +13,7 @@ import "widgets"
 PanelWindow {
     id: win
 
-    readonly property bool on: Theme.lightning
+    readonly property bool on: Theme.lightning && Theme.windowLightning
     visible: on
 
     WlrLayershell.layer: WlrLayer.Top
