@@ -16,8 +16,12 @@ Singleton {
 
     onPlayingChanged: if (!playing) bars = []
 
+    // if cava dies while music plays (killed from outside, crashed), start it again shortly
+    Timer { id: revive; interval: 600; onTriggered: if (root.playing) cava.running = true }
     Process {
+        id: cava
         running: root.playing
+        onExited: if (root.playing) revive.restart()
         command: ["cava", "-p", Quickshell.shellPath("cava.conf")]
         stdout: SplitParser {
             onRead: line => {

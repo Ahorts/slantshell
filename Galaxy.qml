@@ -133,7 +133,7 @@ PanelWindow {
     Timer { interval: 2000; repeat: true; running: win.wanted; triggeredOnStart: true; onTriggered: poll.running = true }
     Process {
         id: poll
-        command: ["sh", "-c", "ps -u \"$USER\" -o pid=,pcpu=,rss=,comm= --sort=-pcpu | head -120; echo @@TEMP; cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | sort -n | tail -1; echo @@STAT; head -1 /proc/stat; echo @@MEM; grep -E 'MemTotal|MemAvailable' /proc/meminfo; echo @@DISK; df --output=pcent / | tail -1"]
+        command: ["sh", "-c", "ps -u \"$USER\" -o pid=,ppid=,pcpu=,rss=,comm= --sort=-pcpu | awk -v q=\"$PPID\" '$2 != q { $2 = \"\"; print }' | head -120; echo @@TEMP; cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | sort -n | tail -1; echo @@STAT; head -1 /proc/stat; echo @@MEM; grep -E 'MemTotal|MemAvailable' /proc/meminfo; echo @@DISK; df --output=pcent / | tail -1"]
         stdout: StdioCollector { onStreamFinished: win.ingest(text) }
     }
 
