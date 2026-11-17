@@ -55,7 +55,8 @@ Item {
     default property alias content: holder.data
 
     readonly property bool gauge: progress >= 0
-    readonly property color edgeColor: gauge ? Qt.rgba(stroke.r, stroke.g, stroke.b, 0.28) : stroke
+    // the plain edge steps back (to a faint guide) when the outline is lightning or a gauge is drawing on it
+    readonly property color edgeColor: (gauge || outlineSpark > 0) ? Qt.rgba(stroke.r, stroke.g, stroke.b, outlineSpark > 0 ? 0.18 : 0.28) : stroke
 
     // Corner points (inset by half the stroke so the stroke isn't clipped; no inset on unstroked edges).
     readonly property real p: strokeWidth / 2
@@ -230,7 +231,20 @@ Item {
     // edgeSpark (0..1): a current along the bottom edge (0 = off).
     property real gaugeSpark: 0
     property real edgeSpark: 0
-    function sparkBurst(amount) { gR.burst(amount); gL.burst(amount); bottomSpark.burst(amount); }
+    // outlineSpark (0..1): the whole outline is a live bolt (replaces the plain edge); 0 = off
+    property real outlineSpark: 0
+    property color sparkColor: Theme.accent
+    function sparkBurst(amount) { gR.burst(amount); gL.burst(amount); bottomSpark.burst(amount); outline.burst(amount); }
+    EdgeSpark {
+        id: outline
+        anchors.fill: parent
+        visible: root.outlineSpark > 0 && !root.round && root.rbEff < 1 && root.width > 20
+        points: [[root.tlx, root.ty], [root.trx, root.ty], [root.brx, root.by], [root.blx, root.by]]
+        closed: true
+        intensity: root.gauge ? root.outlineSpark * 0.6 : root.outlineSpark
+        color: root.sparkColor
+        speed: 0.8
+    }
     readonly property var halfR: gaugeFromTop ? [[midTop, ty], [trx, ty], [brx, by], [midBottom, by]]
                                               : [[midBottom, by], [brx, by], [trx, ty], [midTop, ty]]
     readonly property var halfL: gaugeFromTop ? [[midTop, ty], [tlx, ty], [blx, by], [midBottom, by]]
@@ -261,7 +275,7 @@ Item {
         Rectangle {
             required property var modelData
             readonly property var pt: { root.progress; root.width; return modelData.at(modelData.arcTo); }
-            readonly property real sz: 5 + 3 * Math.random() * root.gaugeSpark + flick.v * 2
+            readonly property real sz: 3.5 + 1.5 * flick.v
             x: pt[0] - sz / 2
             y: pt[1] - sz / 2
             width: sz; height: sz; radius: sz / 2
@@ -270,7 +284,7 @@ Item {
             Rectangle {
                 anchors.centerIn: parent
                 width: parent.width * 3.2; height: width; radius: width / 2
-                color: Qt.rgba(root.progressColor.r, root.progressColor.g, root.progressColor.b, 0.35)
+                color: Qt.rgba(root.progressColor.r, root.progressColor.g, root.progressColor.b, 0.22)
                 z: -1
             }
         }

@@ -47,6 +47,14 @@ Singleton {
 
     // Frosted-glass panels (blurred wallpaper behind them). Turn off to get flat panels.
     property bool glass: true
+    // Lightning on borders (bar panels, island, highlights, and Hyprland window borders via WindowSparks.qml).
+    // TEMPORARY demo option: `qs -p <dir> ipc call lightning toggle` (or on/off).
+    property bool lightning: true
+    // One shared clock for every lightning border, so they all redraw on the same frames (a window then repaints
+    // ~25 times a second at most instead of once per bolt). Even ticks are the "resting" rate.
+    property int sparkTick: 0
+    property int sparkUsers: 0
+    Timer { interval: 40; repeat: true; running: root.sparkUsers > 0; onTriggered: root.sparkTick++ }
 
     readonly property string font: "Sans Serif"
     readonly property int fontSize: 13

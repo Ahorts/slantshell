@@ -221,6 +221,18 @@ Item {
                     font.letterSpacing: 1.5
                 }
             }
+            // the selected card's frame is lightning: it belongs to the card itself, and only shows once the card has
+            // settled in the middle (never trailing behind it while the strip slides)
+            EdgeSpark {
+                id: cardSpark
+                anchors.fill: parent
+                visible: Theme.lightning && card.ad < 0.06 && face.appear > 0.9
+                points: [[-2, -2], [card.width + 2, -2], [card.width + 2, card.height + 2], [-2, card.height + 2]]
+                closed: true
+                cornerPin: 10
+                intensity: 0.22
+                Connections { target: face; function onSparked(amount) { if (cardSpark.visible) cardSpark.burst(amount * 0.6); } }
+            }
             MouseArea {
                 anchors.fill: parent
                 onClicked: { if (card.isSel) face.applyCurrent(); else face.turn(card.d); }
@@ -325,7 +337,7 @@ Item {
         for (const e of [rimL, rimR, railT, railB]) e.burst(amount);
         sparked(amount);
     }
-    onPosTargetChanged: if (active) spark(0.7)
+    onPosTargetChanged: if (active) spark(0.38)
     EdgeSpark {
         id: rimL
         z: 31

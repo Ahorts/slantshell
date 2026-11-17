@@ -81,7 +81,7 @@ PanelWindow {
     SequentialAnimation {
         id: flip
         NumberAnimation { target: win; property: "ringOpacity"; to: 0; duration: 140 }
-        ScriptAction { script: { win.hot = -1; win.page = (win.page + 1) % win.pages.length; win.spin = -24; win.bump(); rimSpark.burst(0.9); ringSpark.burst(0.7); } }
+        ScriptAction { script: { win.hot = -1; win.page = (win.page + 1) % win.pages.length; win.spin = -24; win.bump(); rimSpark.burst(0.75); ringSpark.burst(0.55); } }
         ParallelAnimation {
             NumberAnimation { target: win; property: "spin"; to: 0; duration: 380; easing.type: Easing.OutBack; easing.overshoot: 1.3 }
             NumberAnimation { target: win; property: "ringOpacity"; to: 1; duration: 260 }
@@ -97,6 +97,13 @@ PanelWindow {
     function py(a, r) { return -r * Math.sin(a * Math.PI / 180); }
     // the same, for the full-size Shapes below (their origin is (0, -wheelR), so y is measured from there)
     function sy(a, r) { return wheelR + py(a, r); }
+    // outline of a sector (angles a0..a1, radii ri..ro) as a closed polyline, same coordinates
+    function sectorPts(a0, a1, ri, ro) {
+        const pts = [], n = 10;
+        for (let i = 0; i <= n; i++) { const a = a0 + (a1 - a0) * i / n; pts.push([px(a, ro), sy(a, ro)]); }
+        for (let i = n; i >= 0; i--) { const a = a0 + (a1 - a0) * i / n; pts.push([px(a, ri), sy(a, ri)]); }
+        return pts;
+    }
     // a quarter circle of radius r as a polyline, in the full-size Shapes' coordinates (for the rim lightning)
     function quarter(r) {
         const pts = [];
@@ -224,6 +231,21 @@ PanelWindow {
             intensity: 0.08
             speed: 1.2
         }
+
+        // the hovered sector's border is lightning; it glides with the indicator from sector to sector
+        EdgeSpark {
+            id: hotSpark
+            x: 0
+            y: -win.wheelR
+            width: win.wheelR
+            height: win.wheelR
+            visible: win.indOn > 0.5 && Theme.lightning
+            points: win.sectorPts(win.indA0, win.indA1, win.r1 - 4, win.r2 + 12)
+            closed: true
+            intensity: 0.24
+            step: 5
+        }
+        Connections { target: win; function onHotChanged() { if (win.hot >= 0) hotSpark.burst(0.12); } }
 
         // tick marks: they march around the rim (drift) and jump when the page turns (kick); they fade in and out
         // at the two ends of the quarter so they seem to come from behind the screen edges

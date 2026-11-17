@@ -55,6 +55,15 @@ ShellRoot {
         hypr.running = true;
     }
 
+    // TEMPORARY demo option: lightning on borders (bar, island, highlights, Hyprland window borders).
+    IpcHandler {
+        target: "lightning"
+        function toggle(): void { Theme.lightning = !Theme.lightning; }
+        function on(): void { Theme.lightning = true; }
+        function off(): void { Theme.lightning = false; }
+        function status(): string { return (Theme.lightning ? "on" : "off") + " | live bolts: " + Theme.sparkUsers; }
+    }
+
     IpcHandler {
         target: "sharp"
         function toggle(): void { root.sharp = !root.sharp; }
@@ -208,6 +217,7 @@ ShellRoot {
                 onCloseRequested: root.wallpapersOpen = false
             }
             BarZone { screen: perScreen.modelData }
+            WindowSparks { screen: perScreen.modelData }
             Island {
                 id: isl
                 screen: perScreen.modelData

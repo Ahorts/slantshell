@@ -270,6 +270,7 @@ PanelWindow {
     SkewPanel {
         id: leftPill
         glass: true
+        outlineSpark: Theme.lightning ? 0.12 : 0
         opacity: Math.min(1, bar.introL * 1.5)
         transform: Translate { y: (1 - bar.introL) * -70 }
         x: 0
@@ -408,11 +409,13 @@ PanelWindow {
         gaugeFromTop: bar.view === "notif"   // countdown: the bottom disappears first, the rest retreats to the top
         // lightning: the notification countdown is a live current (pronounced), the volume/brightness gauge a lighter
         // one; while music plays a faint current runs along the bottom edge and jumps with the bass
-        gaugeSpark: bar.view === "notif" ? 0.6 : (bar.view === "osd" ? 0.25 : 0)
-        edgeSpark: (bar.mediaMode && bar.faceKey === "" && bar.view !== "notif") ? 0.04 + 0.4 * Math.min(1, (Audio.bars[1] ?? 0) / 100) : 0
+        gaugeSpark: !Theme.lightning ? 0 : (bar.view === "notif" ? 0.3 : (bar.view === "osd" ? 0.24 : 0))
+        // the island's whole outline is lightning; while music plays it surges with the bass
+        outlineSpark: Theme.lightning ? ((bar.mediaMode && bar.faceKey === "" && bar.view !== "notif")
+                      ? 0.16 + 0.24 * Math.min(1, (Audio.bars[1] ?? 0) / 100) : (bar.faceKey !== "" ? 0.3 : 0.18)) : 0
         Connections {
             target: bar
-            function onViewChanged() { if (bar.view === "notif") island.sparkBurst(0.9); }
+            function onViewChanged() { if (bar.view === "notif") island.sparkBurst(0.3); }
         }
         progressColor: bar.view === "notif" && bar.notifCritical ? Theme.warn
                      : (bar.view === "osd" && bar.osdMuted ? Theme.fgDim : Theme.accent)
@@ -761,6 +764,7 @@ PanelWindow {
     SkewPanel {
         id: musicChip
         glass: true
+        outlineSpark: Theme.lightning ? 0.12 : 0
         skewL: -bar.skew
         skewR: bar.skew
         visible: bar.split > 0.01
@@ -795,6 +799,7 @@ PanelWindow {
     SkewPanel {
         id: rightPill
         glass: true
+        outlineSpark: Theme.lightning ? 0.12 : 0
         opacity: Math.min(1, bar.introR * 1.5)
         transform: Translate { y: (1 - bar.introR) * -70 }
         y: bar.gap                            // floats level with the island; only the outer side touches the screen edge
