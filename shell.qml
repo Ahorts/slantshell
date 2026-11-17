@@ -150,7 +150,7 @@ ShellRoot {
         case "connectivity": root.connectivityOpen = true; break;
         case "sharp":        root.sharp = !root.sharp; break;
         case "flappy":       root.flappyAuto = !root.flappyAuto; break;
-        case "lock":         Quickshell.execDetached(["loginctl", "lock-session"]); break;
+        case "lock":         lockScreen.lock(false); break;
         }
     }
 
@@ -176,6 +176,9 @@ ShellRoot {
         function close(): void { root.wallpapersOpen = false; }
         function turn(): void { root.wallpaperTurn += 1; }
     }
+
+    // sample lock screen for the demo: `ipc call lock lock` (password), or `ipc call lock test` (also unlocks itself after 2 min)
+    LockScreen { id: lockScreen }
 
     Variants {
         model: Quickshell.screens

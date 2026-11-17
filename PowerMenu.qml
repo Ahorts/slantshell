@@ -31,7 +31,7 @@ PanelWindow {
 
     readonly property string user: Quickshell.env("USER")
     readonly property var items: [
-        { label: "LOCK",      sub: "Lock the screen",    icon: "󰌾", cmd: ["loginctl", "lock-session"],            confirm: false },
+        { label: "LOCK",      sub: "Lock the screen",    icon: "󰌾", cmd: ["qs", "-p", Quickshell.shellPath("shell.qml"), "ipc", "call", "lock", "lock"], confirm: false },
         { label: "LOG OUT",   sub: "End this session",   icon: "󰍃", cmd: ["loginctl", "terminate-user", win.user], confirm: true },
         { label: "RESTART",   sub: "Reboot the machine", icon: "󰜉", cmd: ["systemctl", "reboot"],                 confirm: true },
         { label: "SHUT DOWN", sub: "Power off",          icon: "󰐥", cmd: ["systemctl", "poweroff"],               confirm: true }
