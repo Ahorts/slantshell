@@ -32,6 +32,8 @@ ShellRoot {
     property int galaxyCancelTick: 0
     property int galaxyWhereTick: 0
     property string galaxyWhere: ""
+    property int launcherWhereTick: 0
+    property string launcherWhere: ""
     property var galaxyPins: []
     property int galaxyKillDelay: 0
     property bool petOn: true
@@ -100,6 +102,8 @@ ShellRoot {
         function isOpen(): bool { return root.launcherOpen; }
         // for recordings: only list windows on these workspaces ("6,7"); "" lists everything again
         function only(list: string): void { root.launcherOnlyWs = list === "" ? [] : list.split(",").map(x => x.trim()); }
+        // for recordings: "x,y" of the nearest window pill on another workspace ("" if none)
+        function otherWs(): string { root.launcherWhere = ""; root.launcherWhereTick += 1; return root.launcherWhere; }
     }
 
     // `ipc call wipe test` plays the banded wipe once (it recolours nothing).
@@ -228,7 +232,9 @@ ShellRoot {
                 onCloseRequested: root.powerOpen = false
             }
             LauncherFace {
+                id: launcherFace
                 screen: perScreen.modelData
+                Connections { target: root; function onLauncherWhereTickChanged() { const w = launcherFace.pillOnOtherWs(); if (w !== "") root.launcherWhere = w; } }
                 open: root.launcherOpen
                 onlyWs: root.launcherOnlyWs
                 onCloseRequested: root.launcherOpen = false

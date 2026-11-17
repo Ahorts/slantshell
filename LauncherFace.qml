@@ -146,6 +146,24 @@ PanelWindow {
         return winList;
     }
 
+    // For demos: where (screen coordinates "x,y") the nearest pill sits whose window is on ANOTHER workspace than the
+    // focused one ("" if none), so a scripted click shows the switch to another workspace.
+    function pillOnOtherWs() {
+        if (!wanted) return "";
+        const cur = String(Hyprland.focusedMonitor?.activeWorkspace?.name ?? "");
+        const items = wheelItems, n = items.length;
+        let best = -1, bestD = 1e9;
+        for (let i = 0; i < n; i++) {
+            if (items[i].kind !== "window" || items[i].ws === "" || items[i].ws === cur) continue;
+            const d = Math.min(Math.abs(i - wheelSel), n - Math.abs(i - wheelSel));
+            if (d > 0 && d < bestD) { best = i; bestD = d; }
+        }
+        if (best < 0) return "";
+        const p = wheelStage.satPos(best, 1);
+        const g = wheelStage.mapToItem(null, p.x, p.y);
+        return Math.round(g.x) + "," + Math.round(g.y);
+    }
+
     // Right-hand scrollable stream items (Applications, Windows, or Actions)
     readonly property var listItems: {
         // built only when the search scene is used (building hundreds of app rows on open made it lag)
