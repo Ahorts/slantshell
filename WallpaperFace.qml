@@ -71,14 +71,25 @@ Item {
     function applyCurrent() {
         if (lib.count === 0) return;
         const it = lib.get(wrap(Math.round(posTarget)));
-        applyProc.command = ["skwd-helm", "apply", it.kind === "image" ? it.wpath : it.key];
-        applyProc.running = true;
-        Theme.generateFrom(it.thumb);
-        spark(1);
+        // the heavy work (wallpaper renderer, palette regeneration, which repaints the whole shell) waits until the
+        // switcher has finished closing, so it never competes with the animation
+        pending = { cmd: ["skwd-helm", "apply", it.kind === "image" ? it.wpath : it.key], thumb: it.thumb };
+        spark(0.45);
         closeLater.restart();
     }
-
-    Timer { id: closeLater; interval: 260; onTriggered: face.closeRequested() }
+    property var pending: null
+    Timer { id: closeLater; interval: 220; onTriggered: { face.closeRequested(); applyLater.restart(); } }
+    Timer {
+        id: applyLater
+        interval: 620
+        onTriggered: {
+            if (!face.pending) return;
+            applyProc.command = face.pending.cmd;
+            applyProc.running = true;
+            Theme.generateFrom(face.pending.thumb);
+            face.pending = null;
+        }
+    }
 
     // ---- the strip's position: everything (cards, holes, both dials) hangs off this one spring ----
     property real posTarget: 0
