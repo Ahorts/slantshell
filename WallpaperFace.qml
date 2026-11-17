@@ -10,7 +10,7 @@ import "widgets"
 // in the middle. Scroll (or use the arrow keys) and both dials turn, the sprocket holes run along the strip, and
 // the cards are drawn out of one dial and wound into the other, all on one spring. Enter applies (through skwd, so
 // videos and Workshop items work too) and the shell and Hyprland recolour to match. Esc closes.
-// Lists skwd's whole library, most recently used first; without skwd it falls back to ~/Pictures/Wallpapers.
+// Lists skwd's whole library in a fixed order, opening on the current wallpaper; without skwd it falls back to ~/Pictures/Wallpapers.
 Item {
     id: face
 

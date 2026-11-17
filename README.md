@@ -4,6 +4,11 @@ A quick demo desktop, put together with Claude Code at the Claude Builder Club. 
 shell for [Quickshell](https://quickshell.org) on Hyprland with slanted panels, a dynamic island, and a few
 desktop widgets. It was built live: change something, look at a screenshot, give feedback, repeat.
 
+> **This desktop is a demo.** It was made to look good in a three-minute video, not to survive your Tuesday.
+> It has lightning on the borders, a bird living on a wire and a black hole that ends processes, so set your
+> expectations accordingly. If you're feeling brave and want to daily drive it anyway, see
+> [Daily driving it](#daily-driving-it-if-youre-feeling-brave) for the packages it quietly assumes you have.
+
 ## What's in it
 
 - **Top bar** made of three slanted (parallelogram) panels:
@@ -45,7 +50,10 @@ desktop widgets. It was built live: change something, look at a screenshot, give
   light, soft glows drifting behind each dial and a faint dot grid. Opening: the record pops, the side dials slide out
   from behind it, the arcs sweep up and the days light up round the ring.
 - **Lock screen** (`LockScreen.qml`, sample): a real session lock unlocked with your password (PAM). Big rolling
-  clock, status pills (battery, network, music, user) on an orbit, a password pill with a lightning edge where each
+  clock in an energy core (a turning tick ring with the seconds sweeping round it), status pills (battery,
+  network, music, user) on an orbit joined to the core by curved beams with light running along them, a beam down
+  to the password pill that fires a spark into the core on every key (the charge ring fills as you type, it
+  streams while checking, sparks recoil in red on a wrong password), and a password pill with a lightning edge where each
   typed dot pops in; Enter gathers the dots while it checks, a wrong password shakes them out in red; unlocking
   spirals the pills into the clock and clears the blur. The power menu's, corner dial's and switcher's Lock use it.
   `ipc call lock lock` (or `lock test`, which also unlocks
@@ -171,20 +179,44 @@ qs -p /path/to/slantshell ipc call flappy on           # let Flappy Bird play it
 qs -p /path/to/slantshell ipc call idle toggle         # keep the screen awake on/off (also: on, off, status)
 ```
 
-## Requirements
+## Daily driving it (if you're feeling brave)
 
-- Quickshell 0.3+ (tested on 0.3.2)
-- Hyprland (workspace and window info come from it)
-- PipeWire, UPower, and a StatusNotifier tray host for the matching bar items
-- [cava](https://github.com/karlstav/cava) for the island visualizer (it uses its own raw config, `cava.conf`)
-- A backlight device for brightness popups. The device name is `backlight` in `Island.qml`
-  (default `intel_backlight`; see `/sys/class/backlight/`)
-- Optional: skwd wallpaper tools (`skwd-helm`) for the wallpaper switcher
-- `curl`, for lyrics lookups
-- Optional: [matugen](https://github.com/InioX/matugen) writing a Material You palette to
-  `~/.local/state/quickshell/user/generated/colors.json`, and a wallpaper path in
-  `~/.local/state/quickshell/user/generated/wallpaper/path.txt`. Without them the built-in default
-  colours are used.
+Bold choice. Respect. Here's what it leans on. Most of it is probably already on your machine if you run
+Hyprland; the rest you'll find out about the fun way (a blank space where a widget should be).
+
+**The essentials** (no these, no desktop):
+- **Hyprland 0.57+** with the **Lua config**. Every dispatch is written as `hl.dsp.…`; older hyprlang
+  configs will just stare back at you.
+- **Quickshell 0.3+** (tested on 0.3.2). Run it with `qs -p`, it's not a package you install into it.
+- **A Nerd Font** (e.g. Symbols Nerd Font). Without one every icon becomes a polite little box.
+- **PipeWire + WirePlumber** (volume), **UPower** (battery), **NetworkManager** (Wi-Fi and `nmcli`), **BlueZ**
+  (Bluetooth), **PAM** (the lock screen: yes, it uses your real password, no, it doesn't send it anywhere).
+- A **StatusNotifier tray host** for the tray icons, and **no other notification daemon** running (mako, dunst
+  and friends have to sit this one out).
+
+**The fun parts** (each one quietly disappears without its package):
+- [**cava**](https://github.com/karlstav/cava): the island visualizer and the equaliser on the clock shard.
+  It runs only while music plays.
+- **curl**: synced lyrics from [LRCLIB](https://lrclib.net) and the weather from [wttr.in](https://wttr.in)
+  (which guesses your city from your IP, like a very polite stalker).
+- [**skwd-wall**](https://github.com/liixini/skwd-wall) (`skwd-helm`): the wallpaper switcher, including video and Wallpaper
+  Engine scenes. Without it the switcher falls back to the images in `~/Pictures/Wallpapers`.
+- [**matugen**](https://github.com/InioX/matugen): recolours the shell and your window borders from the
+  wallpaper. Optional: an [illogical-impulse](https://github.com/end-4/dots-hyprland) setup, so terminals,
+  GTK and Qt get recoloured too (its `switchwall.sh` is picked up automatically).
+- **kitty**: terminal apps (Neovim, btop, ...) opened from the switcher's search run in it.
+- **wl-clipboard**: the switcher's calculator copies its result with `wl-copy`.
+- **procps / coreutils** (`ps`, `df`): the system galaxy and the dashboard gauges. You have these. Probably.
+- A **backlight device** for the brightness popups. The name is `backlight` in `Island.qml` (default
+  `intel_backlight`; see `/sys/class/backlight/`). Desktop PC? The brightness popup simply never comes. Peace.
+
+**Things it will do to your session** (you were warned, kind of):
+- Squares your window corners on start ("hard edges"); `ipc call sharp off` gives the curves back.
+- Keeps the screen awake by default (`ipc call idle off` lets it sleep again).
+- Puts lightning on your focused window's border. `ipc call lightning windowsOff` if your eyes need a break,
+  `ipc call lightning off` to ground the whole thing.
+- The black hole in the system galaxy really ends programs (gently, with SIGTERM, after asking). The shell,
+  Hyprland and your session are protected. Your unsaved work in other apps is not. Choose your victims wisely.
 
 ## Run
 
