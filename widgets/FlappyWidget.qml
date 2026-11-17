@@ -1,297 +1,322 @@
 import QtQuick
+import QtQuick.Shapes
 import ".."
 
-// Flappy Bird on the desktop. Click the play area (or press Space / Up after clicking it once
-// to focus the widget) to flap. Colours follow the theme.
-Card {
-    id: card
+// Flappy, living on the desktop. No card, no box: a little bird sits on a thin wire that comes in from the right
+// edge of the screen. Click it (then Space / Up / click to flap) and it simply hops off the wire and flies left;
+// slanted glass shards drift in from the left out of nothing (they fade in at the edge) and the score glows faintly
+// behind. Crash: the bird tumbles, the shards slide on and fade away, and the bird flies back to its wire.
+// At rest nothing animates except an occasional blink (the desktop layer stays idle).
+// `auto` (ipc call flappy on) lets it play itself.
+Item {
+    id: game
 
-    // ---- Tunables ----
-    readonly property real areaW: 260
-    readonly property real areaH: 320
-    readonly property real groundH: 30
-    readonly property real birdX: 70
-    readonly property real birdR: 12
-    readonly property real gravity: 950      // px/s^2
-    readonly property real flapSpeed: -320   // px/s
-    readonly property real pipeSpeed: 120    // px/s
-    readonly property real pipeW: 46
-    readonly property real gapH: 100
-    readonly property real pipeSpacing: 170
+    // ---- field ----
+    readonly property real areaW: 860
+    readonly property real areaH: 380
+    readonly property real wireY: 64
+    readonly property real perchX: areaW - 140
+    readonly property real birdX: perchX               // the bird stays in this column while playing
+    readonly property real birdR: 11
+    readonly property real gravity: 980
+    readonly property real flapSpeed: -330
+    readonly property real pipeSpeed: 135
+    readonly property real pipeW: 44
+    readonly property real gapH: 118
+    readonly property real spacing: 230
+    readonly property real fadeEdge: 140                // shards fade in over this many px at the left edge
 
-    // ---- State ----
-    property bool auto: false        // autopilot (shell: `ipc call flappy on`)
-    property string phase: "ready"   // ready | playing | dead
+    width: areaW
+    height: areaH
+
+    // ---- state ----
+    property bool auto: false
+    property string phase: "perched"                   // perched | playing | falling | returning
     property int score: 0
     property int best: 0
-    property real birdY: areaH / 2
+    property real birdY: wireY - birdR
+    property real birdXo: 0                            // offset from birdX (only while returning)
     property real vy: 0
-    property real bob: 0             // idle bobbing offset while "ready"
-    property bool canRestart: true
-    readonly property var pipes: [p0, p1, p2]
-
-    width: areaW + 32
-    height: areaH + 32 + 34
-    focus: true
+    property real tilt: 0
+    property var pipes: []                              // [{ x, gapY, scored }]
+    property real pipesAlpha: 1                         // whole-field fade (after a crash)
+    readonly property bool active: phase !== "perched"
 
     function randomGap() {
-        const margin = 40;
-        return margin + gapH / 2 + Math.random() * (areaH - groundH - gapH - margin * 2);
+        const top = 40 + gapH / 2, bottom = areaH - 40 - gapH / 2;
+        return top + Math.random() * (bottom - top);
     }
-
-    function reset() {
-        birdY = areaH / 2;
-        vy = 0;
+    function start() {
         score = 0;
-        for (let i = 0; i < pipes.length; i++) {
-            pipes[i].x = areaW + 80 + i * pipeSpacing;
-            pipes[i].gapY = randomGap();
-            pipes[i].scored = false;
-        }
-        phase = "ready";
+        const ps = [];
+        for (let i = 0; i < 4; i++) ps.push({ x: -pipeW - i * spacing - 60, gapY: randomGap(), scored: false });
+        pipes = ps;
+        pipesAlpha = 1;
+        phase = "playing";
+        vy = flapSpeed;                                 // the hop off the wire
     }
-
-    function die() {
-        if (phase === "dead") return;
-        phase = "dead";
-        best = Math.max(best, score);
-        canRestart = false;
-        restartLock.restart();
-    }
-
     function flap() {
-        if (phase === "ready") phase = "playing";
-        if (phase === "playing") vy = flapSpeed;
-        else if (phase === "dead" && canRestart) reset();
+        if (phase === "perched") start();
+        else if (phase === "playing") vy = flapSpeed;
+    }
+    function crash() {
+        if (phase !== "playing") return;
+        best = Math.max(best, score);
+        phase = "falling";
     }
 
-    // Autopilot: aim a little below the middle of the next gap and flap when below that line.
+    // autopilot: aim a little below the middle of the next gap
     function botThink() {
-        let best = null;
-        for (let i = 0; i < pipes.length; i++) {
-            const p = pipes[i];
-            if (p.x + pipeW > birdX - birdR && (best === null || p.x < best.x)) best = p;
-        }
-        const target = best ? best.gapY + 18 : areaH / 2;
+        let next = null;
+        for (const p of pipes) if (p.x <= birdX + birdR && p.x + pipeW >= birdX - birdR - 140 && (next === null || p.x > next.x)) next = p;
+        if (next === null) for (const p of pipes) if (p.x < birdX && (next === null || p.x > next.x)) next = p;
+        const target = next ? next.gapY + 16 : areaH / 2;
         if (birdY > target && vy > -120) vy = flapSpeed;
     }
 
     function step(dt) {
-        if (auto) botThink();
-        vy += gravity * dt;
-        birdY += vy * dt;
-
-        for (let i = 0; i < pipes.length; i++) {
-            const p = pipes[i];
-            p.x -= pipeSpeed * dt;
-            if (p.x + pipeW < 0) {
-                p.x += pipes.length * pipeSpacing;
-                p.gapY = randomGap();
-                p.scored = false;
-            }
-            if (!p.scored && p.x + pipeW < birdX - birdR) {
-                p.scored = true;
-                score += 1;
-            }
-            // collision with this pipe pair
-            if (birdX + birdR > p.x && birdX - birdR < p.x + pipeW) {
-                if (birdY - birdR < p.gapY - gapH / 2 || birdY + birdR > p.gapY + gapH / 2) die();
+        if (phase === "playing" || phase === "falling") {
+            if (phase === "playing" && auto) botThink();
+            vy += gravity * dt;
+            birdY += vy * dt;
+            tilt = phase === "falling" ? Math.min(160, tilt + 420 * dt) : Math.max(-25, Math.min(70, vy * 0.12));
+        }
+        // shards keep sliding right (also after a crash, while they fade out)
+        const ps = pipes;
+        let maxSpacingX = Infinity;
+        for (const p of ps) maxSpacingX = Math.min(maxSpacingX, p.x);
+        for (const p of ps) {
+            p.x += pipeSpeed * dt;
+            if (phase === "playing") {
+                if (p.x > areaW + 20) { p.x = maxSpacingX - spacing; p.gapY = randomGap(); p.scored = false; }
+                if (!p.scored && p.x > birdX + birdR) { p.scored = true; score += 1; }
+                if (birdX + birdR > p.x && birdX - birdR < p.x + pipeW
+                    && (birdY - birdR < p.gapY - gapH / 2 || birdY + birdR > p.gapY + gapH / 2)) crash();
             }
         }
-
-        if (birdY + birdR > areaH - groundH) { birdY = areaH - groundH - birdR; die(); }
-        if (birdY - birdR < 0) { birdY = birdR; vy = 0; }
+        pipes = ps.map(q => ({ x: q.x, gapY: q.gapY, scored: q.scored }));   // fresh objects, so the shards' bindings see the move
+        if (phase === "playing") {
+            if (birdY - birdR < 0) { birdY = birdR; vy = 0; }
+            if (birdY + birdR > areaH) crash();
+        }
+        if (phase === "falling") {
+            pipesAlpha = Math.max(0, pipesAlpha - dt * 1.6);
+            if (birdY > areaH + 30) flyHome();
+        }
+    }
+    FrameAnimation {
+        running: game.phase === "playing" || game.phase === "falling"
+        onTriggered: game.step(Math.min(frameTime, 0.05))
     }
 
-    Component.onCompleted: reset()
+    // after a crash: the bird reappears from below the right edge and flies back up to its wire in an arc
+    function flyHome() {
+        phase = "returning";
+        pipes = [];
+        homeAnim.restart();
+    }
+    property real home: 0
+    SequentialAnimation {
+        id: homeAnim
+        ScriptAction { script: { game.tilt = -20; } }
+        NumberAnimation { target: game; property: "home"; from: 0; to: 1; duration: 900; easing.type: Easing.InOutCubic }
+        ScriptAction { script: { game.phase = "perched"; game.tilt = 0; game.birdY = game.wireY - game.birdR; game.birdXo = 0; } }
+    }
+    onHomeChanged: if (phase === "returning") {
+        const t = home;
+        birdXo = (1 - t) * 120 * Math.sin(Math.PI * t * 0.5 + Math.PI / 2);
+        birdY = (areaH + 40) + ((wireY - birdR) - (areaH + 40)) * t - Math.sin(Math.PI * t) * 60;
+        tilt = -20 * (1 - t);
+    }
 
+    // autopilot starts games on its own
+    Timer { running: game.auto && game.phase === "perched"; interval: 900; onTriggered: game.flap() }
+
+    // ---- input ----
+    focus: true
     Keys.onSpacePressed: flap()
     Keys.onUpPressed: flap()
-
-    FrameAnimation {
-        running: card.phase === "playing"
-        onTriggered: card.step(Math.min(frameTime, 0.05))
+    // what takes the pointer: the bird on its wire at rest, the whole field while playing
+    readonly property Item hitItem: active ? game : perchHit
+    Item { id: perchHit; x: game.perchX - 40; y: game.wireY - 46; width: 80; height: 60 }
+    MouseArea {
+        anchors.fill: parent
+        enabled: game.active
+        onPressed: { game.forceActiveFocus(); game.flap(); }
+    }
+    MouseArea {
+        anchors.fill: perchHit
+        enabled: !game.active
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onPressed: { game.forceActiveFocus(); game.flap(); }
     }
 
-    // Gentle idle bob while waiting to start.
-    // Only while hovered: an animation that loops forever keeps the whole desktop layer redrawing.
-    HoverHandler { id: hoverBob }
-    SequentialAnimation {
-        running: card.phase === "ready" && hoverBob.hovered
-        loops: Animation.Infinite
-        NumberAnimation { target: card; property: "bob"; from: -5; to: 5; duration: 600; easing.type: Easing.InOutSine }
-        NumberAnimation { target: card; property: "bob"; from: 5; to: -5; duration: 600; easing.type: Easing.InOutSine }
-    }
-
-    // Autopilot: start and restart games on its own.
-    Timer {
-        running: card.auto
-        interval: 300
-        repeat: true
-        onTriggered: if (card.phase === "ready" || (card.phase === "dead" && card.canRestart)) card.flap()
-    }
-
-    Timer { id: restartLock; interval: 450; onTriggered: card.canRestart = true }
-
-    component PipeItem: Item {
-        property real gapY: 100
-        property bool scored: false
-        width: card.pipeW
-        height: card.areaH - card.groundH
-
-        Rectangle {
-            width: parent.width
-            height: Math.max(0, parent.gapY - card.gapH / 2)
-            color: Theme.good
-            border.color: Qt.darker(Theme.good, 1.5)
-            border.width: 2
-        }
-        Rectangle {
-            y: parent.gapY + card.gapH / 2
-            width: parent.width
-            height: Math.max(0, parent.height - y)
-            color: Theme.good
-            border.color: Qt.darker(Theme.good, 1.5)
-            border.width: 2
+    // ---- the wire: from off the right edge of the screen, sagging a little ----
+    Shape {
+        anchors.fill: parent
+        preferredRendererType: Shape.CurveRenderer
+        ShapePath {
+            strokeColor: Qt.rgba(Theme.fg.r, Theme.fg.g, Theme.fg.b, 0.35)
+            strokeWidth: 1.4
+            fillColor: "transparent"
+            startX: game.perchX - 190; startY: game.wireY - 8
+            PathQuad { x: game.areaW + 60; y: game.wireY - 4; controlX: game.perchX + 30; controlY: game.wireY + 10 }
         }
     }
-
-    // ---- Header ----
-    Row {
-        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 16 }
-        height: 22
-        spacing: 8
-
-        Text {
-            width: parent.width - scoreText.width - 8
-            text: card.auto ? "Flappy · auto" : "Flappy"
-            color: Theme.fgDim
-            font.family: Theme.font
-            font.pixelSize: Theme.fontSize
-            font.bold: true
-        }
-        Text {
-            id: scoreText
-            text: "Best " + card.best
-            color: Theme.fgDim
-            font.family: Theme.font
-            font.pixelSize: Theme.fontSize
-        }
+    // a small insulator where the wire ends
+    Rectangle {
+        x: game.perchX - 194; y: game.wireY - 13
+        width: 8; height: 10; radius: 2
+        color: Qt.rgba(Theme.fg.r, Theme.fg.g, Theme.fg.b, 0.4)
+    }
+    Text {
+        visible: game.best > 0 && game.phase === "perched"
+        x: game.perchX - 186; y: game.wireY + 8
+        text: "best " + game.best
+        color: Theme.fgDim
+        opacity: 0.6
+        font.family: Theme.font
+        font.pixelSize: 10
     }
 
-    // ---- Play area ----
-    Item {
-        id: area
-        x: 16
-        y: 16 + 28
-        width: card.areaW
-        height: card.areaH
-        clip: true
+    // ---- the score, glowing faintly behind the field ----
+    Text {
+        visible: game.phase !== "perched"
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.horizontalCenterOffset: -80
+        y: 70
+        text: game.score
+        color: Theme.accent
+        opacity: 0.22 * (game.phase === "playing" ? 1 : game.pipesAlpha)
+        font.family: Theme.font
+        font.pixelSize: 140
+        font.bold: true
+    }
 
-        // Sky
-        Rectangle {
-            anchors.fill: parent
-            gradient: Gradient {
-                orientation: Gradient.Vertical
-                GradientStop { position: 0.0; color: Theme.bg }
-                GradientStop { position: 1.0; color: Qt.darker(Theme.accentContainer, 2.2) }
-            }
-        }
-
-        PipeItem { id: p0; y: 0 }
-        PipeItem { id: p1; y: 0 }
-        PipeItem { id: p2; y: 0 }
-
-        // Ground
-        Rectangle {
-            y: card.areaH - card.groundH
-            width: parent.width
-            height: card.groundH
-            color: Theme.surface
-            Rectangle { width: parent.width; height: 2; color: Theme.accentContainer }
-        }
-
-        // Bird
+    // ---- the shards ----
+    Repeater {
+        model: game.pipes.length
         Item {
-            id: bird
-            x: card.birdX - card.birdR
-            y: card.birdY + (card.phase === "ready" ? card.bob : 0) - card.birdR
-            width: card.birdR * 2
-            height: card.birdR * 2
-            rotation: card.phase === "ready" ? 0 : Math.max(-25, Math.min(70, card.vy / 6))
-            Behavior on rotation { enabled: card.phase !== "dead"; NumberAnimation { duration: 60 } }
-
-            Rectangle { anchors.fill: parent; radius: width / 2; color: Theme.accent }
-            Rectangle { x: 14; y: 6; width: 7; height: 7; radius: 3.5; color: "white"
-                Rectangle { x: 3; y: 2.5; width: 3; height: 3; radius: 1.5; color: "#222" } }
-            Rectangle { x: 19; y: 12; width: 9; height: 5; radius: 2.5; color: Theme.accentContainer }
-        }
-
-        // Score while playing
-        Text {
-            visible: card.phase === "playing"
-            anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: 14 }
-            text: card.score
-            color: Theme.fg
-            font.family: Theme.font
-            font.pixelSize: 40
-            font.bold: true
-            style: Text.Outline
-            styleColor: Qt.rgba(0, 0, 0, 0.5)
-        }
-
-        // Overlays
-        Text {
-            visible: card.phase === "ready"
-            anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: 50 }
-            horizontalAlignment: Text.AlignHCenter
-            text: "Click or press Space\nto flap"
-            color: Theme.fg
-            font.family: Theme.font
-            font.pixelSize: Theme.fontSize + 1
-        }
-
-        Rectangle {
-            visible: card.phase === "dead"
-            anchors.centerIn: parent
-            width: 190
-            height: 96
-            radius: Theme.radius
-            color: Qt.rgba(Theme.bg.r, Theme.bg.g, Theme.bg.b, 0.9)
-            border.color: Theme.accentContainer
-            border.width: 1
-
-            Column {
-                anchors.centerIn: parent
-                spacing: 4
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: "Game over"
-                    color: Theme.warn
-                    font.family: Theme.font
-                    font.pixelSize: Theme.fontSize + 4
-                    font.bold: true
-                }
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: "Score " + card.score + "   Best " + card.best
-                    color: Theme.fg
-                    font.family: Theme.font
-                    font.pixelSize: Theme.fontSize
-                }
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: "Click to retry"
-                    color: Theme.fgDim
-                    font.family: Theme.font
-                    font.pixelSize: Theme.fontSize - 1
+            id: pp
+            required property int index
+            readonly property var p: game.pipes[index] ?? { x: -999, gapY: 0 }
+            readonly property real fade: Math.max(0, Math.min(1, (p.x + game.pipeW) / game.fadeEdge))
+                                       * Math.max(0, Math.min(1, (game.areaW - p.x) / 80)) * game.pipesAlpha
+            x: p.x; y: 0
+            width: game.pipeW; height: game.areaH
+            opacity: fade
+            visible: fade > 0.01
+            // top shard and bottom shard, slanted like the shell's panels
+            Repeater {
+                model: 2
+                Shape {
+                    id: shard
+                    required property int index
+                    readonly property bool isTop: index === 0
+                    readonly property real y0: isTop ? 0 : pp.p.gapY + game.gapH / 2
+                    readonly property real y1: isTop ? pp.p.gapY - game.gapH / 2 : game.areaH
+                    anchors.fill: parent
+                    preferredRendererType: Shape.CurveRenderer
+                    ShapePath {
+                        // glass: faint at the outer end, brighter towards the gap
+                        fillGradient: LinearGradient {
+                            x1: 0; y1: shard.isTop ? shard.y0 : shard.y1; x2: 0; y2: shard.isTop ? shard.y1 : shard.y0
+                            GradientStop { position: 0; color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.03) }
+                            GradientStop { position: 1; color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.32) }
+                        }
+                        strokeColor: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.9)
+                        strokeWidth: 1.3
+                        joinStyle: ShapePath.MiterJoin
+                        // a slanted tip at the gap: top shard (0,0)-(W,0)-(W,y1-8)-(0,y1); bottom (0,y0+8)-(W,y0)-(W,y1)-(0,y1)
+                        startX: 0; startY: shard.isTop ? 0 : shard.y0 + 8
+                        PathLine { x: game.pipeW; y: shard.isTop ? 0 : shard.y0 }
+                        PathLine { x: game.pipeW; y: shard.isTop ? shard.y1 - 8 : shard.y1 }
+                        PathLine { x: 0; y: shard.y1 }
+                        PathLine { x: 0; y: shard.isTop ? 0 : shard.y0 + 8 }
+                    }
                 }
             }
         }
+    }
 
-        MouseArea {
+    // ---- the bird ----
+    Item {
+        id: bird
+        x: game.birdX + game.birdXo - 16
+        y: game.birdY - 14
+        width: 32; height: 28
+        rotation: game.tilt
+        scale: 1.35
+        transformOrigin: Item.Center
+        // body
+        Rectangle {
+            x: 4; y: 4; width: 24; height: 20; radius: 10
+            color: Theme.accent
+            antialiasing: true
+        }
+        // belly
+        Rectangle { x: 7; y: 13; width: 13; height: 9; radius: 5; color: Qt.lighter(Theme.accent, 1.35); antialiasing: true }
+        // wing: folded when perched, beating while flying
+        Rectangle {
+            id: wing
+            x: 13; y: 9; width: 12; height: 8; radius: 4
+            color: Qt.darker(Theme.accent, 1.3)
+            antialiasing: true
+            transformOrigin: Item.Left
+            property real beat: 0
+            rotation: game.phase === "perched" ? 0 : -35 + 50 * beat
+            SequentialAnimation on beat {
+                running: game.phase === "playing" || game.phase === "returning"
+                loops: Animation.Infinite
+                NumberAnimation { from: 0; to: 1; duration: 110 }
+                NumberAnimation { from: 1; to: 0; duration: 110 }
+            }
+        }
+        // beak (facing left, the way it flies)
+        Shape {
             anchors.fill: parent
-            onPressed: { card.forceActiveFocus(); card.flap(); }
+            preferredRendererType: Shape.CurveRenderer
+            ShapePath {
+                fillColor: Theme.warn
+                strokeColor: "transparent"
+                startX: 5; startY: 10
+                PathLine { x: -2; y: 13 }
+                PathLine { x: 5; y: 15 }
+            }
+        }
+        // eye, with an occasional blink
+        Rectangle {
+            id: eye
+            x: 8; y: 8; width: 5; height: game.phase === "falling" ? 1.5 : (blink.on ? 1 : 5); radius: 2.5
+            color: Theme.bg
+        }
+        // tail
+        Rectangle { x: 25; y: 8; width: 7; height: 4; radius: 2; color: Qt.darker(Theme.accent, 1.2); rotation: -20; antialiasing: true }
+        // feet on the wire
+        Row {
+            visible: game.phase === "perched"
+            x: 11; y: 23
+            spacing: 5
+            Repeater { model: 2; Rectangle { width: 1.5; height: 5; color: Theme.fgDim } }
         }
     }
+    QtObject { id: blink; property bool on: false }
+    Timer {
+        running: game.phase === "perched"
+        interval: 3800 + Math.random() * 2500
+        repeat: true
+        onTriggered: { blink.on = true; blinkOff.restart(); }
+    }
+    Timer { id: blinkOff; interval: 130; onTriggered: blink.on = false }
+    // hint while hovering the bird
+    Text {
+        visible: game.phase === "perched" && perchHover.hovered
+        x: game.perchX - width / 2; y: game.wireY + 14
+        text: "click to fly"
+        color: Theme.fgDim
+        font.family: Theme.font
+        font.pixelSize: 10
+    }
+    HoverHandler { id: perchHover; target: perchHit }
 }

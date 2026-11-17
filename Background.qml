@@ -26,7 +26,7 @@ PanelWindow {
     mask: Region {
         regions: [
             Region { item: leftColumn },
-            Region { item: flappy },
+            Region { item: flappy.hitItem },
             Region { item: petItem.hitItem }
         ]
     }
@@ -36,7 +36,8 @@ PanelWindow {
         anchors { left: parent.left; top: parent.top; leftMargin: 64; topMargin: 96 }
         spacing: 12
 
-        PulseClock {}
+        ShardClock {}
+        WeatherShard {}
     }
 
     // The desktop pet and its game live here, on the desktop, so windows cover them like everything else.
@@ -47,9 +48,10 @@ PanelWindow {
         auto: bg.petAuto
     }
 
+    // Flappy: a bird on a wire coming in from the right edge of the screen (see widgets/FlappyWidget.qml)
     FlappyWidget {
         id: flappy
         auto: bg.flappyAuto
-        anchors { right: parent.right; top: parent.top; rightMargin: 48; topMargin: 96 }
+        anchors { right: parent.right; top: parent.top; topMargin: 60 }
     }
 }
