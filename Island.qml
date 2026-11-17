@@ -397,7 +397,7 @@ PanelWindow {
         // Size: the resting content's width (with a floor), or the face asked for. Content is tied to the shape's real,
         // animated size: it shows only once the shape has ARRIVED (`fit`), so nothing appears before there is room.
         clip: true
-        readonly property real restW: bar.layoutView === "notif" ? 500
+        readonly property real restW: bar.layoutView === "notif" ? 600
              : bar.layoutView === "osd" ? 250
              : Math.max(140, (bar.layoutView === "media" ? mediaView.implicitWidth : titleView.implicitWidth) + 36)
         readonly property real targetW: bar.faceKey !== "" ? bar.faceW : restW
@@ -498,11 +498,11 @@ PanelWindow {
             }
 
             RowLayout {
-                Layout.preferredWidth: 400
+                Layout.preferredWidth: 500
                 spacing: 10
 
                 Text {
-                    Layout.maximumWidth: 180
+                    Layout.maximumWidth: 220
                     text: bar.shownNotif ? (bar.shownNotif.summary || bar.shownNotif.appName) : ""
                     color: bar.notifCritical ? Theme.warn : Theme.fg
                     elide: Text.ElideRight
@@ -598,15 +598,15 @@ PanelWindow {
                 id: titleSlot
                 // exactly as wide as the text (no animation of its own: the island's spring is the only thing
                 // that moves, so the line always sits dead centre and the island opens evenly around it)
-                Layout.maximumWidth: 380
-                Layout.preferredWidth: Math.min(380, Math.ceil(titleText.implicitWidth))
+                Layout.maximumWidth: 480
+                Layout.preferredWidth: Math.min(480, Math.ceil(titleText.implicitWidth))
                 Layout.preferredHeight: titleText.implicitHeight
 
                 // the line that was just sung: lifts up and fades while the new one rises into its place
                 Text {
                     id: ghost
                     anchors.horizontalCenter: parent.horizontalCenter
-                    width: Math.min(380, implicitWidth)
+                    width: Math.min(480, implicitWidth)
                     elide: Text.ElideRight
                     horizontalAlignment: Text.AlignHCenter
                     textFormat: Text.StyledText
@@ -702,7 +702,7 @@ PanelWindow {
 
             Text {
                 id: trackText
-                Layout.maximumWidth: 360
+                Layout.maximumWidth: 460
                 text: {
                     const p = bar.player;
                     if (!p) return "";
