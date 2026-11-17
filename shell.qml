@@ -46,6 +46,9 @@ ShellRoot {
     // Set to false to leave your Hyprland rounding alone. Toggle live with `ipc call sharp toggle`.
     property bool sharp: true
     property bool flappyAuto: false
+    property int flappyUntil: 0
+    property int flappyDemo: 0
+    property string flappyPhase: "perched"
 
     // Square window corners (Hyprland can't slant real windows). Your own border is kept.
     // Turning it off reloads the Hyprland config, which restores your own rounding.
@@ -80,8 +83,11 @@ ShellRoot {
     // Lets the desktop Flappy Bird play itself.
     IpcHandler {
         target: "flappy"
-        function on(): void { root.flappyAuto = true; }
-        function off(): void { root.flappyAuto = false; }
+        function on(): void { root.flappyUntil = 0; root.flappyAuto = true; }
+        function off(): void { root.flappyAuto = false; root.flappyUntil = 0; }
+        // demo: play itself through n shards, then miss one and fly home (once)
+        function demo(n: int): void { root.flappyUntil = Math.max(1, n); root.flappyAuto = true; root.flappyDemo += 1; }
+        function phase(): string { return root.flappyPhase; }
     }
 
     IpcHandler {
@@ -203,6 +209,9 @@ ShellRoot {
                 id: desk
                 screen: perScreen.modelData
                 flappyAuto: root.flappyAuto
+                flappyUntil: root.flappyUntil
+                Connections { target: root; function onFlappyDemoChanged() { desk.flappy.flap(); } }
+                Binding { target: root; property: "flappyPhase"; value: desk.flappy.phase; when: desk.screen === Quickshell.screens[0] }
                 petOn: root.petOn
                 petAuto: root.petAuto
                 Connections { target: root; function onPetGameOnChanged() { desk.pet.startGame(); } }

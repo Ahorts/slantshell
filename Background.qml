@@ -10,6 +10,8 @@ PanelWindow {
     id: bg
 
     property bool flappyAuto: false
+    property int flappyUntil: 0
+    property alias flappy: flappy
     property bool petOn: true
     property bool petAuto: false
     property alias pet: petItem
@@ -52,6 +54,7 @@ PanelWindow {
     FlappyWidget {
         id: flappy
         auto: bg.flappyAuto
+        autoUntil: bg.flappyUntil
         anchors { right: parent.right; top: parent.top; topMargin: 60 }
     }
 }

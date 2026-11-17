@@ -224,7 +224,8 @@ Item {
     function enterGame() {
         hopAnim.stop(); jump = 0; vy = 0;
         obstacles.clear();
-        over = false; score = 0; dist = 0; speed = 320; untilSpawn = 700;
+        over = false; score = 0; dist = 0; speed = 420; untilSpawn = 200;
+        obstacles.append({ ox: runnerX + 760, ow: 40, oh: 34 });   // one waiting on the floor, so the first jump comes quickly
         facing = 1; mood = "idle";
         game = true;
         morph.restart();
@@ -243,7 +244,7 @@ Item {
         }
     }
     Timer { id: backToPet; interval: 1600; onTriggered: { if (win.auto) win.restartGame(); else win.endGame(); } }
-    function restartGame() { obstacles.clear(); over = false; score = 0; dist = 0; speed = 320; untilSpawn = 600; jump = 0; vy = 0; }
+    function restartGame() { obstacles.clear(); over = false; score = 0; dist = 0; speed = 420; untilSpawn = 200; jump = 0; vy = 0; obstacles.append({ ox: runnerX + 760, ow: 40, oh: 34 }); }
 
     function doJump() {
         if (!game) return;
@@ -265,7 +266,7 @@ Item {
         if (untilSpawn <= 0) {
             const tall = Math.random() < 0.4;
             obstacles.append({ ox: win.width + 40, ow: tall ? 26 : 36 + Math.random() * 22, oh: tall ? 58 : 30 + Math.random() * 14 });
-            untilSpawn = 420 + Math.random() * 420 + speed * 0.28;
+            untilSpawn = 380 + Math.random() * 360 + speed * 0.25;
         }
         // move, collide, clean up
         const rx0 = runnerX + 8, rx1 = runnerX + 48, ry0 = floorY - 44 + jump + 4, ry1 = floorY + jump;

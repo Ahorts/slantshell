@@ -40,6 +40,7 @@ Item {
 
     // ---- state ----
     property bool auto: false
+    property int autoUntil: 0                          // autopilot stops flapping after this many shards (0 = never)
     property string phase: "perched"                   // perched | playing | falling | returning
     property int score: 0
     property int best: 0
@@ -58,9 +59,11 @@ Item {
     function start() {
         score = 0;
         const ps = [];
-        for (let i = 0; i < 4; i++) ps.push({ x: -pipeW - i * spacing - 60, gapY: randomGap(), scored: false });
+        // the first shard starts close (about 1.8 s from the bird) so a game gets going quickly; the field fades in
+        const x0 = Math.max(-pipeW - 60, birdX - birdR - pipeW - pipeSpeed * 1.8);
+        for (let i = 0; i < 4; i++) ps.push({ x: x0 - i * spacing, gapY: randomGap(), scored: false });
         pipes = ps;
-        pipesAlpha = 1;
+        pipesAlpha = 0;
         phase = "playing";
         vy = flapSpeed;                                 // the hop off the wire
     }
@@ -80,12 +83,14 @@ Item {
         for (const p of pipes) if (p.x <= birdX + birdR && p.x + pipeW >= birdX - birdR - 140 && (next === null || p.x > next.x)) next = p;
         if (next === null) for (const p of pipes) if (p.x < birdX && (next === null || p.x > next.x)) next = p;
         const target = next ? next.gapY + 16 : areaH / 2;
+        if (autoUntil > 0 && score >= autoUntil) return;   // demo: give up after N, so it crashes
         if (birdY > target && vy > -120) vy = flapSpeed;
     }
 
     function step(dt) {
         if (phase === "playing" || phase === "falling") {
             if (phase === "playing" && auto) botThink();
+            if (phase === "playing") pipesAlpha = Math.min(1, pipesAlpha + dt * 3);
             vy += gravity * dt;
             birdY += vy * dt;
             tilt = phase === "falling" ? Math.min(160, tilt + 420 * dt) : Math.max(-25, Math.min(70, vy * 0.12));
@@ -139,7 +144,7 @@ Item {
     }
 
     // autopilot starts games on its own
-    Timer { running: game.auto && game.phase === "perched"; interval: 900; onTriggered: game.flap() }
+    Timer { running: game.auto && game.autoUntil === 0 && game.phase === "perched"; interval: 900; onTriggered: game.flap() }
 
     // ---- input ----
     focus: true
