@@ -397,7 +397,7 @@ PanelWindow {
         // Size: the resting content's width (with a floor), or the face asked for. Content is tied to the shape's real,
         // animated size: it shows only once the shape has ARRIVED (`fit`), so nothing appears before there is room.
         clip: true
-        readonly property real restW: bar.layoutView === "notif" ? 600
+        readonly property real restW: bar.layoutView === "notif" ? Math.min(600, Math.max(200, notifView.implicitWidth + 36))
              : bar.layoutView === "osd" ? 250
              : Math.max(140, (bar.layoutView === "media" ? mediaView.implicitWidth : titleView.implicitWidth) + 36)
         readonly property real targetW: bar.faceKey !== "" ? bar.faceW : restW
@@ -497,11 +497,12 @@ PanelWindow {
                 }
             }
 
+            // as wide as the text needs (the island fits around it, centred), up to the island's 600 px
             RowLayout {
-                Layout.preferredWidth: 500
                 spacing: 10
 
                 Text {
+                    id: notifSummary
                     Layout.maximumWidth: 220
                     text: bar.shownNotif ? (bar.shownNotif.summary || bar.shownNotif.appName) : ""
                     color: bar.notifCritical ? Theme.warn : Theme.fg
@@ -512,7 +513,9 @@ PanelWindow {
                 }
 
                 Text {
-                    Layout.fillWidth: true
+                    id: notifBody
+                    // whatever room is left of 600 px after the island's padding, the icon and the summary
+                    Layout.preferredWidth: Math.min(implicitWidth, 600 - 36 - 24 - 12 - Math.min(220, notifSummary.implicitWidth) - 10)
                     visible: bar.notifHasBody
                     text: bar.shownNotif ? bar.shownNotif.body.replace(/\s*\n\s*/g, " ") : ""
                     color: Theme.fgDim
@@ -521,7 +524,6 @@ PanelWindow {
                     font.pixelSize: Theme.fontSize
                 }
 
-                Item { Layout.fillWidth: true; visible: !bar.notifHasBody }
             }
         }
 
