@@ -312,12 +312,23 @@ Item {
                 required property int index
                 x: modelData.x; y: modelData.y
                 Rectangle { x: -3; y: -3; width: 6; height: 6; radius: 3; color: index === 0 ? Theme.accent : Theme.bg; border.color: Theme.accent; border.width: 1.2; antialiasing: true }
-                Text {
+                // icon and temperature as separate pieces with a real gap (icon glyphs overhang their advance width)
+                Row {
                     anchors.horizontalCenter: parent.horizontalCenter
                     y: 8
-                    text: root.glyph(modelData.q.k, modelData.q.night) + " " + modelData.q.t + "°"
-                    color: Theme.fg
-                    font.family: Theme.font; font.pixelSize: 11; font.bold: true
+                    spacing: 6
+                    Text {
+                        text: root.glyph(modelData.q.k, modelData.q.night)
+                        color: Theme.fg
+                        font.family: Theme.font; font.pixelSize: 11; font.bold: true
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    Text {
+                        text: modelData.q.t + "°"
+                        color: Theme.fg
+                        font.family: Theme.font; font.pixelSize: 11; font.bold: true
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
                 }
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
