@@ -59,6 +59,8 @@ Scope {
         function test(): void { root.lock(true); }
         function lock(): void { root.lock(false); }
         function isLocked(): bool { return root.locked; }
+        // ends a TEST lock early (for previews); does nothing to a real lock
+        function release(): void { if (root.testMode) root.unlock(); }
     }
 
     WlSessionLock {
@@ -103,6 +105,147 @@ Scope {
             }
             Rectangle { anchors.fill: parent; color: Qt.rgba(0, 0, 0, 0.35 * (1 - root.leave)) }
 
+
+            // ---- the flow layer: energy moving between the core (the clock), the status pills and the password pill ----
+            // Like the Wi-Fi/Bluetooth screen's beams, taken further: curved glowing beams with travelling pulses, a ring
+            // of ticks round the core with the seconds sweeping, a charge ring that fills as you type, a beam down to the
+            // password pill that fires a spark up into the core on every key, streams while the password is checked
+            // (and the status beams flow inwards), and kicks red sparks back down when it's wrong. Faint motes drift up.
+            property var shots: []                   // sparks on the password beam: { t0, dir: 1 up / -1 down, warn }
+            property real charge: Math.min(1, root.typed.length / 10)
+            Behavior on charge { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+            readonly property var motes: {
+                const out = [];
+                for (let i = 0; i < 48; i++) out.push({ x: Math.random(), y: Math.random(), v: 0.012 + Math.random() * 0.03, r: 0.6 + Math.random() * 1.6, ph: Math.random() * 6.28 });
+                return out;
+            }
+            Connections {
+                target: root
+                property int lastLen: 0
+                function onTypedChanged() {
+                    if (root.typed.length > lastLen) surf.shots = surf.shots.concat([{ t0: surf.t, dir: 1, warn: false }]);
+                    lastLen = root.typed.length;
+                }
+                function onFailedChanged() {
+                    if (root.failed) surf.shots = surf.shots.concat([0, 0.09, 0.18].map(d => ({ t0: surf.t + d, dir: -1, warn: true })));
+                }
+            }
+            Canvas {
+                id: flow
+                anchors.fill: parent
+                renderTarget: Canvas.FramebufferObject
+                onPaint: {
+                    const ctx = getContext("2d");
+                    ctx.reset();
+                    const k = surf.intro * (1 - root.leave);
+                    if (k <= 0.01) return;
+                    const cx = surf.cx, cy = surf.cy, t = surf.t, R = 150;
+                    const ac = Theme.accent, wc = Theme.warn, fg = Theme.fg;
+                    const col = root.failed ? wc : ac;
+                    const rgba = (c, a) => Qt.rgba(c.r, c.g, c.b, a * k);
+
+                    // motes, drifting up
+                    for (const m of surf.motes) {
+                        const y = ((m.y - t * m.v) % 1 + 1) % 1 * height;
+                        const x = m.x * width + Math.sin(t * 0.4 + m.ph) * 14;
+                        ctx.beginPath(); ctx.arc(x, y, m.r, 0, Math.PI * 2);
+                        ctx.fillStyle = rgba(fg, 0.10 + 0.08 * Math.sin(t + m.ph)); ctx.fill();
+                    }
+
+                    // orbit tracks (the status pills ride the inner one), the outer one dashed and drifting
+                    ctx.lineWidth = 1;
+                    ctx.beginPath(); ctx.ellipse(cx - 430, cy - 250, 860, 500); ctx.strokeStyle = rgba(ac, 0.10); ctx.stroke();
+                    ctx.setLineDash([3, 9]); ctx.lineDashOffset = -t * 6;
+                    ctx.beginPath(); ctx.ellipse(cx - 480, cy - 290, 960, 580); ctx.strokeStyle = rgba(ac, 0.07); ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    // keystroke sparks that have reached the core make it flash
+                    let hit = 0;
+                    const live = [];
+                    for (const s of surf.shots) {
+                        const age = t - s.t0;
+                        if (age < 1.2) live.push(s);
+                        if (s.dir > 0 && age > 0.42) hit += Math.exp(-(age - 0.42) * 7);
+                    }
+                    if (live.length !== surf.shots.length) surf.shots = live;
+                    hit = Math.min(1, hit);
+
+                    // core ring: 60 ticks turning slowly, the seconds sweeping, the charge ring inside
+                    const sec = (new Date()).getSeconds() + (new Date()).getMilliseconds() / 1000;
+                    for (let i = 0; i < 60; i++) {
+                        const a = i / 60 * Math.PI * 2 + t * 0.05;
+                        const major = i % 5 === 0;
+                        const r1 = R + 8, r2 = R + (major ? 18 : 13);
+                        ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1); ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
+                        ctx.strokeStyle = rgba(fg, major ? 0.30 : 0.13); ctx.lineWidth = major ? 1.6 : 1; ctx.stroke();
+                    }
+                    const sa = -Math.PI / 2, se = sa + sec / 60 * Math.PI * 2;
+                    ctx.beginPath(); ctx.arc(cx, cy, R, sa, se); ctx.strokeStyle = rgba(ac, 0.55 + 0.4 * hit); ctx.lineWidth = 2.2; ctx.lineCap = "round"; ctx.stroke();
+                    ctx.beginPath(); ctx.arc(cx + Math.cos(se) * R, cy + Math.sin(se) * R, 3.6, 0, Math.PI * 2); ctx.fillStyle = rgba(fg, 0.95); ctx.fill();
+                    ctx.beginPath(); ctx.arc(cx + Math.cos(se) * R, cy + Math.sin(se) * R, 9, 0, Math.PI * 2); ctx.fillStyle = rgba(ac, 0.25); ctx.fill();
+                    if (surf.charge > 0.001 || root.busy) {
+                        const ch = root.busy ? 1 : surf.charge;
+                        ctx.beginPath(); ctx.arc(cx, cy, R - 12, sa, sa + ch * Math.PI * 2);
+                        ctx.strokeStyle = rgba(col, root.busy ? 0.5 + 0.35 * Math.sin(t * 9) : 0.6); ctx.lineWidth = 3; ctx.stroke();
+                    }
+                    if (hit > 0.02) {     // flash ripple
+                        ctx.beginPath(); ctx.arc(cx, cy, R + 24 + (1 - hit) * 40, 0, Math.PI * 2);
+                        ctx.strokeStyle = rgba(ac, 0.35 * hit); ctx.lineWidth = 2; ctx.stroke();
+                    }
+
+                    // beams to the status pills: curved, glowing, with two pulses each (inwards while checking)
+                    const n = surf.sats.length;
+                    for (let i = 0; i < n; i++) {
+                        const p = surf.satPos(i);
+                        const dx = p.x - cx, dy = p.y - cy, d = Math.hypot(dx, dy);
+                        if (d < R + 60) continue;
+                        const ux = dx / d, uy = dy / d, nx = -uy, ny = ux;
+                        const sx = cx + ux * (R + 22), sy = cy + uy * (R + 22);
+                        const cut = Math.abs(ux) * 108 + Math.abs(uy) * 30;
+                        const ex = p.x - ux * cut, ey = p.y - uy * cut;
+                        const bow = 26 * Math.sin(t * 0.7 + i * 1.7);
+                        const qx = (sx + ex) / 2 + nx * bow, qy = (sy + ey) / 2 + ny * bow;
+                        const g = ctx.createLinearGradient(sx, sy, ex, ey);
+                        g.addColorStop(0, rgba(ac, 0.55)); g.addColorStop(0.5, rgba(ac, 0.16)); g.addColorStop(1, rgba(ac, 0.45));
+                        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.quadraticCurveTo(qx, qy, ex, ey);
+                        ctx.strokeStyle = g; ctx.lineWidth = 1.5; ctx.lineCap = "round"; ctx.stroke();
+                        for (let j = 0; j < 2; j++) {
+                            let u = (t * (root.busy ? 1.6 : 0.42) + i * 0.27 + j * 0.5) % 1;
+                            if (root.busy) u = 1 - u;
+                            const a1 = (1 - u) * (1 - u), a2 = 2 * (1 - u) * u, a3 = u * u;
+                            const px = a1 * sx + a2 * qx + a3 * ex, py = a1 * sy + a2 * qy + a3 * ey;
+                            const fade = Math.sin(u * Math.PI);
+                            ctx.beginPath(); ctx.arc(px, py, 7, 0, Math.PI * 2); ctx.fillStyle = rgba(ac, 0.18 * fade); ctx.fill();
+                            ctx.beginPath(); ctx.arc(px, py, 2.4, 0, Math.PI * 2); ctx.fillStyle = rgba(fg, 0.85 * fade); ctx.fill();
+                        }
+                    }
+
+                    // the beam down to the password pill, its sparks, and the stream while checking
+                    const bx = cx, by0 = cy + R + 24, by1 = cy + 330 - 8;
+                    const wob = root.busy ? 3 : 0;
+                    ctx.beginPath();
+                    for (let s2 = 0; s2 <= 20; s2++) {
+                        const u = s2 / 20, y = by0 + (by1 - by0) * u, x = bx + Math.sin(u * 14 - t * 12) * wob * Math.sin(u * Math.PI);
+                        if (s2 === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                    }
+                    const gb = ctx.createLinearGradient(bx, by0, bx, by1);
+                    gb.addColorStop(0, rgba(col, 0.5)); gb.addColorStop(1, rgba(col, root.typed.length > 0 || root.busy ? 0.6 : 0.2));
+                    ctx.strokeStyle = gb; ctx.lineWidth = root.busy ? 2 : 1.4; ctx.stroke();
+                    const spark = (u, c, big) => {
+                        const y = by1 + (by0 - by1) * u;
+                        ctx.beginPath(); ctx.arc(bx, y, big ? 10 : 7, 0, Math.PI * 2); ctx.fillStyle = rgba(c, 0.25); ctx.fill();
+                        ctx.beginPath(); ctx.arc(bx, y, big ? 3.4 : 2.6, 0, Math.PI * 2); ctx.fillStyle = rgba(fg, 0.95); ctx.fill();
+                    };
+                    for (const s of live) {
+                        const age = t - s.t0;
+                        if (age < 0 || age > 0.42) continue;
+                        const u = age / 0.42;
+                        spark(s.dir > 0 ? u * u * (3 - 2 * u) : 1 - u, s.warn ? wc : ac, true);
+                    }
+                    if (root.busy) for (let j = 0; j < 4; j++) spark((t * 2.2 + j / 4) % 1, ac, false);
+                }
+            }
+
             // ---- status orbit ----
             readonly property var sats: {
                 const out = [];
@@ -117,7 +260,11 @@ Scope {
                 return out;
             }
             property real orbit: 0
-            FrameAnimation { running: root.locked; onTriggered: surf.orbit += frameTime * 0.06 }
+            property real t: 0                       // seconds since the lock came up (drives the flow layer)
+            FrameAnimation {
+                running: root.locked
+                onTriggered: { surf.orbit += frameTime * 0.06; surf.t += frameTime; flow.requestPaint(); }
+            }
             function satPos(i) {
                 const n = Math.max(1, sats.length);
                 const a = orbit + i / n * Math.PI * 2 - Math.PI / 2 + root.leave * 2.4;
@@ -132,17 +279,6 @@ Scope {
                     required property var modelData
                     required property int index
                     readonly property var p: surf.satPos(index)
-                    // beam to the clock
-                    Rectangle {
-                        readonly property real dx: sat.p.x - surf.cx
-                        readonly property real dy: sat.p.y - surf.cy
-                        x: surf.cx; y: surf.cy
-                        width: Math.hypot(dx, dy); height: 1
-                        color: Qt.rgba(Theme.fg.r, Theme.fg.g, Theme.fg.b, 0.14)
-                        transformOrigin: Item.Left
-                        rotation: Math.atan2(dy, dx) * 180 / Math.PI
-                        antialiasing: true
-                    }
                     Rectangle {
                         x: sat.p.x - width / 2; y: sat.p.y - height / 2
                         width: 210; height: 54; radius: 27
