@@ -215,6 +215,10 @@ Hyprland; the rest you'll find out about the fun way (a blank space where a widg
 - Keeps the screen awake by default (`ipc call idle off` lets it sleep again).
 - Puts lightning on your focused window's border. `ipc call lightning windowsOff` if your eyes need a break,
   `ipc call lightning off` to ground the whole thing.
+- **Battery life?** Never heard of her. All that lightning is redrawn many times a second, so on a laptop
+  unplugged, `qs -p /path/to/slantshell ipc call lightning off` buys you some of it back (the bars, island,
+  windows and dials go back to plain, calm borders). `ipc call lightning on` when you're plugged in and feeling
+  dramatic again.
 - The black hole in the system galaxy really ends programs (gently, with SIGTERM, after asking). The shell,
   Hyprland and your session are protected. Your unsaved work in other apps is not. Choose your victims wisely.
 
