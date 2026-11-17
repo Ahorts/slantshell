@@ -239,8 +239,12 @@ Item {
         id: outline
         anchors.fill: parent
         visible: root.outlineSpark > 0 && !root.round && root.rbEff < 1 && root.width > 20
-        points: [[root.tlx, root.ty], [root.trx, root.ty], [root.brx, root.by], [root.blx, root.by]]
-        closed: true
+        // the outline is open where the panel meets the screen edge (an unstroked side): the current runs along
+        // the three visible edges and stops at the screen, as if the panel came out of it
+        points: !root.strokeLeft ? [[root.tlx, root.ty], [root.trx, root.ty], [root.brx, root.by], [root.blx, root.by]]
+              : !root.strokeRight ? [[root.trx, root.ty], [root.tlx, root.ty], [root.blx, root.by], [root.brx, root.by]]
+              : [[root.tlx, root.ty], [root.trx, root.ty], [root.brx, root.by], [root.blx, root.by]]
+        closed: root.strokeLeft && root.strokeRight
         intensity: root.gauge ? root.outlineSpark * 0.6 : root.outlineSpark
         color: root.sparkColor
         speed: 0.8
