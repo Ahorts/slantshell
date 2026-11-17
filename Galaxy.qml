@@ -982,7 +982,7 @@ PanelWindow {
         Behavior on inOut { SpringAnimation { spring: 4.2; damping: 0.48; epsilon: 0.002 } }
 
         width: 364
-        height: 406
+        height: cardCol.implicitHeight + 48      // fits its content (the button used to be squeezed)
         radius: 26
         x: -width + (width + 32) * inOut
         y: (win.height - height) / 2
@@ -996,6 +996,7 @@ PanelWindow {
         MouseArea { anchors.fill: parent }
 
         ColumnLayout {
+            id: cardCol
             anchors { fill: parent; margins: 24 }
             spacing: 12
 
@@ -1280,6 +1281,7 @@ PanelWindow {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 38
+                Layout.minimumHeight: 38
                 radius: 19
                 color: card.b && card.b.prot
                     ? Qt.rgba(1, 1, 1, 0.06)
