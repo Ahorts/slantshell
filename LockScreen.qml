@@ -154,9 +154,9 @@ Scope {
 
                     // orbit tracks (the status pills ride the inner one), the outer one dashed and drifting
                     ctx.lineWidth = 1;
-                    ctx.beginPath(); ctx.ellipse(cx - 430, cy - 250, 860, 500); ctx.strokeStyle = rgba(ac, 0.10); ctx.stroke();
+                    ctx.beginPath(); ctx.ellipse(cx - 470, cy - 300, 940, 600); ctx.strokeStyle = rgba(ac, 0.10); ctx.stroke();
                     ctx.setLineDash([3, 9]); ctx.lineDashOffset = -t * 6;
-                    ctx.beginPath(); ctx.ellipse(cx - 480, cy - 290, 960, 580); ctx.strokeStyle = rgba(ac, 0.07); ctx.stroke();
+                    ctx.beginPath(); ctx.ellipse(cx - 520, cy - 340, 1040, 680); ctx.strokeStyle = rgba(ac, 0.07); ctx.stroke();
                     ctx.setLineDash([]);
 
                     // keystroke sparks that have reached the core make it flash
@@ -198,10 +198,11 @@ Scope {
                     for (let i = 0; i < n; i++) {
                         const p = surf.satPos(i);
                         const dx = p.x - cx, dy = p.y - cy, d = Math.hypot(dx, dy);
-                        if (d < R + 60) continue;
                         const ux = dx / d, uy = dy / d, nx = -uy, ny = ux;
+                        // start just outside the tick ring, end exactly on the pill's edge (210 x 54, plus a hair)
+                        const cut = Math.min(Math.abs(ux) > 1e-3 ? 108 / Math.abs(ux) : 1e9, Math.abs(uy) > 1e-3 ? 30 / Math.abs(uy) : 1e9);
+                        if (d - cut < R + 22 + 12) continue;
                         const sx = cx + ux * (R + 22), sy = cy + uy * (R + 22);
-                        const cut = Math.abs(ux) * 108 + Math.abs(uy) * 30;
                         const ex = p.x - ux * cut, ey = p.y - uy * cut;
                         const bow = 26 * Math.sin(t * 0.7 + i * 1.7);
                         const qx = (sx + ex) / 2 + nx * bow, qy = (sy + ey) / 2 + ny * bow;
@@ -221,7 +222,7 @@ Scope {
                     }
 
                     // the beam down to the password pill, its sparks, and the stream while checking
-                    const bx = cx, by0 = cy + R + 24, by1 = cy + 330 - 8;
+                    const bx = cx, by0 = cy + R + 24, by1 = cy + 372 - 8;
                     const wob = root.busy ? 3 : 0;
                     ctx.beginPath();
                     for (let s2 = 0; s2 <= 20; s2++) {
@@ -269,7 +270,7 @@ Scope {
                 const n = Math.max(1, sats.length);
                 const a = orbit + i / n * Math.PI * 2 - Math.PI / 2 + root.leave * 2.4;
                 const k = Math.max(0, surf.intro) * (1 - root.leave);
-                return { x: cx + Math.cos(a) * 430 * k, y: cy + Math.sin(a) * 250 * k };
+                return { x: cx + Math.cos(a) * 470 * k, y: cy + Math.sin(a) * 300 * k };
             }
 
             Repeater {
@@ -342,7 +343,7 @@ Scope {
                 id: pw
                 width: 360; height: 52
                 x: surf.cx - width / 2
-                y: surf.cy + 330
+                y: surf.cy + 372
                 opacity: surf.intro * (1 - root.leave)
                 property real shake: 0
                 transform: Translate { x: Math.sin(pw.shake * Math.PI * 6) * 14 * (1 - pw.shake) }
