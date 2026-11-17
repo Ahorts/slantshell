@@ -48,10 +48,17 @@ Item {
                         recent: Number(w.last_applied) || 0
                     }));
                 } catch (e) { console.warn("WallpaperFace: could not read skwd's library:", e); }
-                items.sort((a, b) => b.recent - a.recent);
+                // a FIXED order (by key), so "three to the right" is always the same wallpaper; the strip opens on
+                // the wallpaper applied most recently (the current one) instead of putting it first
+                items.sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
                 if (items.length === 0) { fallback.running = true; return; }
+                let cur = 0;
+                for (let i = 1; i < items.length; i++) if (items[i].recent > items[cur].recent) cur = i;
                 lib.clear();
                 for (const it of items) lib.append(it);
+                face.posReady = false;
+                face.posTarget = cur;                 // jump there without the spring ...
+                Qt.callLater(() => face.posReady = true);   // ... then animate as usual
             }
         }
         onExited: (code, status) => { if (code !== 0) fallback.running = true; }
@@ -94,7 +101,8 @@ Item {
     // ---- the strip's position: everything (cards, holes, both dials) hangs off this one spring ----
     property real posTarget: 0
     property real pos: posTarget
-    Behavior on pos { SpringAnimation { spring: 4.2; damping: 0.46; epsilon: 0.004 } }
+    property bool posReady: true
+    Behavior on pos { enabled: face.posReady; SpringAnimation { spring: 4.2; damping: 0.46; epsilon: 0.004 } }
     readonly property int base: Math.round(pos)
     function turn(by) { posTarget += by; }
     property int forceTurn: 0                 // each change turns one step (`ipc call wallpapers turn`)
