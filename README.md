@@ -31,12 +31,29 @@ desktop widgets. It was built live: change something, look at a screenshot, give
   between two gear dials centred on the screen edges. The selected wallpaper is big in the middle; scrolling (or the
   arrow keys) turns both dials, runs the sprocket holes along and winds cards from one dial into the other on one
   spring. The strip creeps and the dials' hands and inner rings keep moving on their own. Enter applies, Esc closes.
-- **Edge lightning** (`widgets/EdgeSpark.qml`): short crackling sparks that run along a border (a ring or a polyline),
-  faint at rest and flaring up on demand. Used on the wallpaper dials' rims, the film rails and the band's edges
-  (flare on every turn), the corner dial's rim (flares when you scroll it), the app switcher's wheel (flares as the
-  selection moves), the notification countdown (the shrinking outline is a live current with bright heads) and the
-  volume gauge, and along the island's bottom edge while music plays (jumps with the bass).
-- **App switcher: two scenes**: it opens on the window wheel (centre stage). Typing (or Down, or the Apps/Actions
+- **Lightning borders** (`widgets/EdgeSpark.qml`): a border that is itself one continuous bolt (fine crackle all
+  along, with brighter surges travelling round it), calm at rest and flaring on demand. On the island and the side
+  bars (the island's surges with the bass while music plays), the notification countdown and volume gauge, highlighted
+  items (corner-dial sector, app-switcher search row, the selected wallpaper card, today's date), the
+  wallpaper dials, rails and band edges, the dashboard's dividers, record and graph card, and the focused Hyprland
+  window's border (`WindowSparks.qml`). All bolts share one 25 Hz clock. TEMPORARY demo option:
+  `ipc call lightning toggle|on|off|status` (`Theme.lightning`).
+- **Dashboard** (`DashboardFace.qml`): an instrument cluster of three linked dials. Left: a gauge with three nested
+  arcs (CPU, memory, disk) and a rolling CPU figure. Centre: the record (cover art spinning while it plays) inside a
+  ring of audio bars, with the title, the current lyric line and the transport. Right: the month as a ring of day
+  dots (past filled, today breathing) around the clock and date. Behind them: the cover art blurred into ambient
+  light, soft glows drifting behind each dial and a faint dot grid. Opening: the record pops, the side dials slide out
+  from behind it, the arcs sweep up and the days light up round the ring.
+- **Lock screen** (`LockScreen.qml`, sample): a real session lock unlocked with your password (PAM). Big rolling
+  clock, status pills (battery, network, music, user) on an orbit, a password pill with a lightning edge where each
+  typed dot pops in; Enter gathers the dots while it checks, a wrong password shakes them out in red; unlocking
+  spirals the pills into the clock and clears the blur. The power menu's, corner dial's and switcher's Lock use it.
+  `ipc call lock lock` (or `lock test`, which also unlocks
+  itself after 2 minutes as a safety net).
+- **App switcher: two scenes**: it opens on the window orbit: a large live preview of the selected window in the
+  middle, your windows as pills (icon, app, workspace) on a ring around it, joined by thin beams. The ring turns so the
+  selection comes round to the top (its pill lifts and lights, a pulse runs along its beam). Windows on hidden
+  workspaces show a big app icon instead of a preview. The surface stays mapped (click-through) so it opens instantly. Typing (or Down, or the Apps/Actions
   chips) switches to search: the wheel spins, shrinks and arcs into the search bar's lens, the bar unrolls from it and
   the results cascade in. Esc, or Tab on an empty search, brings the wheel back out of the lens.
 - **App switcher extras**: the wheel's hub shows a live picture of the selected window (screencopy), sectors name the
@@ -53,8 +70,15 @@ desktop widgets. It was built live: change something, look at a screenshot, give
   wing on the left (live seconds sweep, month navigation with wheel/arrows), and a live telemetry wing on the right
   (auto-scaling CPU & RAM history sparklines with hover crosshair, CPU package temperature, uptime, and four rippling
   liquid orb gauges)
-- **Desktop widgets**: a **pulse clock** (a clock inside a ring with a seconds sweep that grows live
-  audio-reactive bars from cava while music plays) and a playable **Flappy Bird** that can also play itself
+- **Desktop widgets**: a **shard clock** (`widgets/ShardClock.qml`: big slanted rolling digits on a slanted glass
+  shard, a seconds line that steps forward with a glowing head, greeting and date; while music plays an equaliser
+  grows out of the shard's top edge), a **weather shard** under it (`widgets/WeatherShard.qml`: drawn icon for the
+  conditions that comes alive on refresh and hover, temperature, feels-like, high/low, place, humidity, wind, and a
+  small forecast curve; data from wttr.in, which locates you by IP, refreshed every 20 minutes and cached), and
+  **Flappy**, which lives on the desktop with no box: a little
+  bird perched on a wire that comes in from the right edge. Click it and it hops off and flies left while slanted
+  glass shards drift in from nowhere; crash and the shards fade away while the bird flies back to its wire (best
+  score under the wire). Idle, it only blinks now and then; it can also play itself
 - **Frosted glass**: the bar panels, island, dashboard and launcher show a blurred, screen-aligned copy of
   your wallpaper under a translucent tint (one small shader, `shaders/glass.frag`; rebuild with
   `/usr/lib/qt6/bin/qsb --qt6 glass.frag -o glass.frag.qsb`). `Theme.glass` turns it off.
