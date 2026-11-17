@@ -177,7 +177,8 @@ PanelWindow {
             const n = bar.shownNotif;
             if (!n) return 5000;
             if (n.urgency === NotificationUrgency.Critical) return 12000;
-            return n.expireTimeout > 0 ? n.expireTimeout * 1000 : 5000;
+            // expireTimeout comes in milliseconds (as sent); kept between 2.5 s and 15 s so it can't stick forever
+            return n.expireTimeout > 0 ? Math.max(2500, Math.min(15000, n.expireTimeout)) : 5000;
         }
         paused: bar.notifMode && islandHover.hovered
         running: bar.notifMode
