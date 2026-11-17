@@ -10,9 +10,11 @@ desktop widgets. It was built live: change something, look at a screenshot, give
 > [Daily driving it](#daily-driving-it-if-youre-feeling-brave) for the packages it quietly assumes you have.
 
 ## Demo video
+
+They say a picture is worth a thousand words. This is three minutes at 60 fps, so that's 10,800 pictures,
+which makes it roughly 10.8 million words. Duh. You were never going to read all of that anyway.
+
 https://github.com/user-attachments/assets/8c042ba7-acea-4931-8260-8ce87d44be83
-
-
 
 ## What's in it
 
