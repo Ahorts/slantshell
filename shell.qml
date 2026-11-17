@@ -30,6 +30,8 @@ ShellRoot {
     property int galaxyEndTick: 0
     property int galaxyConfirmTick: 0
     property int galaxyCancelTick: 0
+    property int galaxyWhereTick: 0
+    property string galaxyWhere: ""
     property bool petOn: true
     property bool petAuto: false
     property int petGameOn: 0
@@ -128,6 +130,8 @@ ShellRoot {
         function end(name: string): void { root.galaxyName = name; root.galaxyEndTick += 1; }
         function confirm(): void { root.galaxyConfirmTick += 1; }
         function cancel(): void { root.galaxyCancelTick += 1; }
+        // "x,y,holeX,holeY": where that program's bubble and the black hole are on screen (for scripted drags)
+        function where(name: string): string { root.galaxyWhere = ""; root.galaxyName = name; root.galaxyWhereTick += 1; return root.galaxyWhere; }
     }
 
     IpcHandler {
@@ -247,6 +251,7 @@ ShellRoot {
                 Connections { target: root; function onGalaxyEndTickChanged() { galaxy.askEndByName(root.galaxyName); } }
                 Connections { target: root; function onGalaxyConfirmTickChanged() { galaxy.confirm(); } }
                 Connections { target: root; function onGalaxyCancelTickChanged() { galaxy.cancel(); } }
+                Connections { target: root; function onGalaxyWhereTickChanged() { const w = galaxy.whereIs(root.galaxyName); if (w !== "") root.galaxyWhere = w; } }
             }
             CornerWheel {
                 screen: perScreen.modelData

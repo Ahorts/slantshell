@@ -340,6 +340,16 @@ PanelWindow {
         bubs.setProperty(i, "st", "idle");
         confirmTimer.restart();
     }
+    // where a bubble is on screen, and where the black hole is: "x,y,holeX,holeY" ("" if not found). For demos.
+    function whereIs(name) {
+        if (!wanted) return "";
+        for (let i = 0; i < bubs.count; i++) {
+            const b = bubs.get(i);
+            if (b.name === name && b.st === "idle")
+                return Math.round(cx + (b.bx - cx) * zoom) + "," + Math.round(cy + (b.by - cy) * zoom) + "," + Math.round(cx) + "," + Math.round(cy);
+        }
+        return "";
+    }
     function askEndByName(name) { for (let i = 0; i < bubs.count; i++) if (bubs.get(i).name === name) { askEnd(i); return; } }
     function pushOut(i) {
         const b = bubs.get(i);
