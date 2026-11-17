@@ -32,7 +32,12 @@ PanelWindow {
             let k = -1;
             for (let i = 0; i < wins.count; i++) if (wins.get(i).addr === w.addr) { k = i; break; }
             if (k < 0) wins.append(w);
-            else for (const key of ["x", "y", "w", "h", "focused"]) if (wins.get(k)[key] !== w[key]) wins.setProperty(k, key, w[key]);
+            else {
+                const o = wins.get(k);
+                // moved without an event we hide on (e.g. the scrolling layout sliding its columns): hide and fade back
+                if (Math.abs(o.x - w.x) > 2 || Math.abs(o.y - w.y) > 2 || Math.abs(o.w - w.w) > 2 || Math.abs(o.h - w.h) > 2) win.hideWhileMoving();
+                for (const key of ["x", "y", "w", "h", "focused"]) if (o[key] !== w[key]) wins.setProperty(k, key, w[key]);
+            }
         }
     }
     property string focusedAddr: ""
@@ -73,9 +78,9 @@ PanelWindow {
     function refresh() { if (on && !read.running) read.running = true; else if (on) again.restart(); }
     Timer { id: again; interval: 120; onTriggered: win.refresh() }
     Timer { id: debounce; interval: 60; onTriggered: win.refresh() }
-    Timer { interval: 1500; repeat: true; running: win.on; onTriggered: win.refresh() }
+    Timer { interval: 700; repeat: true; running: win.on; onTriggered: win.refresh() }
     // Hyprland only reports where a window will END UP, not where it is mid-animation; so while windows open, move,
-    // resize or switch workspace, the bolts hide at once and fade back in after the animation (~420 ms) has landed.
+    // resize, switch workspace or the scrolling layout slides its columns, the bolts hide at once and fade back in after the animation (~420 ms) has landed.
     property real show: 1
     NumberAnimation { id: fadeIn; target: win; property: "show"; to: 1; duration: 220; easing.type: Easing.OutCubic }
     Timer { id: settle; interval: 460; onTriggered: fadeIn.restart() }
@@ -84,7 +89,8 @@ PanelWindow {
         target: Hyprland
         function onRawEvent(ev) {
             const n = ev.name;
-            if (n.startsWith("openwindow") || n.startsWith("closewindow") || n.startsWith("movewindow")
+            // activewindow too: in the scrolling layout, focusing another column slides every window (no move event)
+            if (n.startsWith("openwindow") || n.startsWith("closewindow") || n.startsWith("movewindow") || n.startsWith("activewindow")
                 || n === "workspace" || n === "workspacev2" || n.startsWith("changefloatingmode") || n.startsWith("fullscreen")
                 || n.startsWith("activespecial") || n.startsWith("moveworkspace"))
                 win.hideWhileMoving();
