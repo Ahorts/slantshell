@@ -35,6 +35,8 @@ PanelWindow {
     readonly property bool onFocusedScreen: (Quickshell.env("SLANT_TEST_ANYSCREEN") === "1" || Quickshell.env("SLANT_TEST_ANYSCREEN") === screen?.name || (!Quickshell.env("SLANT_TEST_ANYSCREEN") && Hyprland.focusedMonitor?.name === screen?.name))
     readonly property string faceKey: onFocusedScreen ? face : ""
     property string shownFace: ""             // the face whose content is on show right now
+    readonly property bool faceShowing: faceKey !== "" || shownFace !== ""
+    onFaceShowingChanged: { if (faceShowing) Theme.faceScreen = screen?.name ?? ""; else if (Theme.faceScreen === screen?.name) Theme.faceScreen = ""; }
     property real faceAlpha: 0
     readonly property bool restVisible: shownFace === "" && faceKey === ""
     readonly property real faceW: faceKey === "dashboard" ? faceDash.faceW : 0

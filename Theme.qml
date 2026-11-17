@@ -51,6 +51,9 @@ Singleton {
     // TEMPORARY demo option: `qs -p <dir> ipc call lightning toggle` (or on/off).
     property bool lightning: true
     property bool windowLightning: true
+    // the screen whose island has a face open (dashboard, Wi-Fi/BT): window lightning shares the bar's layer and
+    // would draw through it, so it fades out there (WindowSparks.qml)
+    property string faceScreen: ""
     // where the right bar panel's front (bottom-left) corner is on screen: Flappy's wire hangs from it
     property real barAnchorX: -1
     property real barAnchorY: 48      // the Hyprland window-border part (WindowSparks.qml)

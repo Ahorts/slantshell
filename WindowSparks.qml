@@ -82,6 +82,9 @@ PanelWindow {
     // Hyprland only reports where a window will END UP, not where it is mid-animation; so while windows open, move,
     // resize, switch workspace or the scrolling layout slides its columns, the bolts hide at once and fade back in after the animation (~420 ms) has landed.
     property real show: 1
+    // fades out while the island has a face open on this screen (same layer, so it would draw through it)
+    property real faceHide: Theme.faceScreen !== "" && Theme.faceScreen === screen?.name ? 0 : 1
+    Behavior on faceHide { NumberAnimation { duration: 160 } }
     NumberAnimation { id: fadeIn; target: win; property: "show"; to: 1; duration: 220; easing.type: Easing.OutCubic }
     Timer { id: settle; interval: 460; onTriggered: fadeIn.restart() }
     function hideWhileMoving() { fadeIn.stop(); show = 0; settle.restart(); }
@@ -115,7 +118,7 @@ PanelWindow {
             points: [[modelData.x - o, modelData.y - o], [modelData.x + modelData.w + o, modelData.y - o],
                      [modelData.x + modelData.w + o, modelData.y + modelData.h + o], [modelData.x - o, modelData.y + modelData.h + o]]
             closed: true
-            opacity: win.show
+            opacity: win.show * win.faceHide
             cornerPin: 14
             intensity: modelData.focused ? 0.38 : 0.1
             step: 8
