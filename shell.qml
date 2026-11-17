@@ -32,6 +32,8 @@ ShellRoot {
     property int galaxyCancelTick: 0
     property int galaxyWhereTick: 0
     property string galaxyWhere: ""
+    property var galaxyPins: []
+    property int galaxyKillDelay: 0
     property bool petOn: true
     property bool petAuto: false
     property int petGameOn: 0
@@ -136,6 +138,9 @@ ShellRoot {
         function end(name: string): void { root.galaxyName = name; root.galaxyEndTick += 1; }
         function confirm(): void { root.galaxyConfirmTick += 1; }
         function cancel(): void { root.galaxyCancelTick += 1; }
+        // demos: always show these programs ("btop,firefox"; "" clears), and end programs `ms` after confirming
+        function pin(names: string): void { root.galaxyPins = names === "" ? [] : names.split(",").map(x => x.trim()); }
+        function killDelay(ms: int): void { root.galaxyKillDelay = Math.max(0, ms); }
         // "x,y,holeX,holeY": where that program's bubble and the black hole are on screen (for scripted drags)
         function where(name: string): string { root.galaxyWhere = ""; root.galaxyName = name; root.galaxyWhereTick += 1; return root.galaxyWhere; }
     }
@@ -255,6 +260,8 @@ ShellRoot {
                 id: galaxy
                 screen: perScreen.modelData
                 open: root.galaxyOpen
+                pins: root.galaxyPins
+                killDelay: root.galaxyKillDelay
                 onCloseRequested: root.galaxyOpen = false
                 Connections { target: root; function onGalaxySelectTickChanged() { galaxy.select(root.galaxyName); } }
                 Connections { target: root; function onGalaxyEndTickChanged() { galaxy.askEndByName(root.galaxyName); } }

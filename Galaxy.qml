@@ -172,6 +172,8 @@ PanelWindow {
             g.cpu += Number(m[2]); g.rss += Number(m[3]); g.pids.push(m[1]);
         }
         const list = Object.values(groups).sort((a, b) => (b.cpu - a.cpu) || (b.rss - a.rss)).slice(0, 14);
+        // pinned programs always get a bubble while they run, even when they are too quiet for the top 14
+        for (const p of win.pins) if (groups[p] && list.indexOf(groups[p]) < 0) list.push(groups[p]);
         const names = list.map(g => g.name);
 
         for (let i = bubs.count - 1; i >= 0; i--) {
@@ -365,7 +367,9 @@ PanelWindow {
     function confirm() {
         if (pending < 0) return;
         const b = bubs.get(pending);
-        Quickshell.execDetached(["kill", "-TERM"].concat(b.pids.split(" ")));
+        // with a kill delay (demos), the program quits a moment later, so its window can be seen closing once the galaxy is gone
+        if (killDelay > 0) { delayedKill.pids = b.pids; delayedKill.restart(); }
+        else Quickshell.execDetached(["kill", "-TERM"].concat(b.pids.split(" ")));
         bubs.setProperty(pending, "st", "sucked");
         say("Asked " + b.name + " to quit");
         if (selected === b.name) selected = "";
@@ -374,6 +378,9 @@ PanelWindow {
     }
     function say(msg) { notice = msg; noticeTimer.restart(); }
     Timer { id: confirmTimer; interval: 7000; onTriggered: win.cancel() }
+    property var pins: []
+    property int killDelay: 0
+    Timer { id: delayedKill; property string pids: ""; interval: Math.max(1, win.killDelay); onTriggered: Quickshell.execDetached(["kill", "-TERM"].concat(pids.split(" "))) }
     Timer { id: noticeTimer; interval: 2600; onTriggered: win.notice = "" }
 
     function bubbleAt(fx, fy) {
