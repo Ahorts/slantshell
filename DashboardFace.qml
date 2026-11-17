@@ -1,1065 +1,548 @@
 import Quickshell
 import Quickshell.Io
+import Quickshell.Widgets
 import Quickshell.Services.Mpris
 import Quickshell.Services.UPower
 import QtQuick
-import QtQuick.Layouts
 import QtQuick.Shapes
 import QtQuick.Effects
 import "widgets"
 
-// Dashboard face of the island (sculpted Pocket-Dots + Anserin style — no nested boxy parallelogram cages,
-// no 42 small squares on the calendar, no twisted sliver tags):
-//   - Centre hub: mechanical vinyl turntable with circular-masked cover art, swinging tonearm,
-//     32 radial audio-reactive spectrum bars, counter-rotating tick ring, click-to-flip synced lyrics,
-//     and pill transport controls.
-//   - Left wing (unfolds on a spring): live chrono header + clean borderless month calendar
-//     (only Today and the hovered day get a pill highlight; wheel or arrows browse months).
-//   - Right wing (unfolds on a spring): dual auto-scaling live telemetry sparklines (CPU & RAM
-//     history with hover crosshair + CPU package temperature + uptime) above four rippling LiquidOrb gauges.
+// Dashboard face of the island: an instrument cluster of three dials, linked like the switcher's orbit.
+//   left   a gauge: three nested arcs (CPU, memory, disk) sweeping round 240 degrees, the CPU figure rolling in
+//          the middle, the temperature under it
+//   centre the record: the cover art spinning while it plays, inside a ring of audio bars; title, the current lyric
+//          line (or the artist), and the transport
+//   right  the month as a ring: one dot per day round a circle (past days filled, today glowing, future hollow),
+//          the clock and date in the middle; hovering a dot shows that day
+// Thin beams with travelling pulses link the side dials to the record.
+// Opening: the record pops, the side dials slide out from behind it, the arcs sweep up to their values and the days
+// light up round the ring one after another. Everything springs; nothing covers it while it opens.
 Item {
     id: face
 
     property bool active: false
     signal closeRequested()
 
-    readonly property real faceW: 1000
-    readonly property real faceH: 454
-    readonly property real cx: faceW / 2
-    readonly property real cy: 184
+    readonly property real faceW: 1060
+    readonly property real faceH: 440
 
-    // ---- Staggered spring choreography ----
-    property real hubGrow: active ? 1 : 0
-    Behavior on hubGrow { SpringAnimation { spring: 4.0; damping: 0.44; epsilon: 0.002 } }
+    readonly property real dialY: 212
+    readonly property real sideR: 142
+    readonly property real midX: faceW / 2
+    readonly property real leftX: 190
+    readonly property real rightX: faceW - 190
 
-    property real wingL: active ? 1 : 0
-    Behavior on wingL {
+    // ---- choreography ----
+    property real pop: active ? 1 : 0                       // the record
+    Behavior on pop { SpringAnimation { spring: 4.0; damping: 0.42; epsilon: 0.002 } }
+    property real wings: active ? 1 : 0                     // side dials slide out
+    Behavior on wings {
         SequentialAnimation {
-            PauseAnimation { duration: face.active ? 70 : 0 }
-            SpringAnimation { spring: 3.6; damping: 0.44; epsilon: 0.002 }
+            PauseAnimation { duration: face.active ? 110 : 0 }
+            SpringAnimation { spring: 3.4; damping: 0.46; epsilon: 0.002 }
         }
     }
+    property real sweep: 0                                  // arcs and day dots fill in
+    NumberAnimation { id: sweepIn; target: face; property: "sweep"; from: 0; to: 1; duration: 900; easing.type: Easing.OutCubic }
+    onActiveChanged: if (active) { sweep = 0; sweepIn.restart(); statFile.reload(); memFile.reload(); upFile.reload(); tempFile.reload(); }
 
-    property real wingR: active ? 1 : 0
-    Behavior on wingR {
-        SequentialAnimation {
-            PauseAnimation { duration: face.active ? 130 : 0 }
-            SpringAnimation { spring: 3.6; damping: 0.44; epsilon: 0.002 }
-        }
-    }
-
-    // ---- Continuous animation clock (vinyl spin, ticks) ----
-    property real idle: 0
-    property real spinDeg: 0
-    FrameAnimation {
-        running: face.active && face.visible
-        onTriggered: {
-            const dt = Math.min(frameTime, 0.05);
-            face.idle += dt;
-            if (face.isPlaying) face.spinDeg = (face.spinDeg + dt * 42) % 360;
-        }
-    }
-
-    // ---- Clock & Calendar state ----
+    // ---- data ----
     SystemClock { id: clock; precision: SystemClock.Seconds }
     readonly property var now: clock.date
 
-    property int viewYear: now.getFullYear()
-    property int viewMonth: now.getMonth()
-    readonly property bool isCurrentMonth: viewYear === now.getFullYear() && viewMonth === now.getMonth()
-
-    function goToToday() {
-        viewYear = now.getFullYear();
-        viewMonth = now.getMonth();
-    }
-    function stepMonth(delta) {
-        let m = viewMonth + delta;
-        let y = viewYear;
-        if (m < 0) { m = 11; y--; }
-        else if (m > 11) { m = 0; y++; }
-        viewMonth = m;
-        viewYear = y;
-    }
-
-    onActiveChanged: if (active) {
-        goToToday();
-        statFile.reload(); memFile.reload(); upFile.reload(); tempFile.reload();
-    }
-
-    // DST-safe 42-cell calendar grid (Monday first)
-    readonly property var gridCells: {
-        const y = face.viewYear;
-        const m = face.viewMonth;
-        const todayY = face.now.getFullYear();
-        const todayM = face.now.getMonth();
-        const todayD = face.now.getDate();
-        const firstDow = (new Date(y, m, 1, 12).getDay() + 6) % 7;
-        const cells = [];
-        for (let i = 0; i < 42; i++) {
-            const d = new Date(y, m, 1 - firstDow + i, 12);
-            const cy = d.getFullYear(), cm = d.getMonth(), cd = d.getDate();
-            cells.push({
-                day: cd,
-                inMonth: cm === m,
-                isToday: cy === todayY && cm === todayM && cd === todayD,
-                isWeekend: (i % 7) >= 5
-            });
-        }
-        return cells;
-    }
-
-    // ---- Media state ----
     readonly property var player: Audio.player ?? (Mpris.players.values.find(p => (p.trackTitle ?? "") !== "") ?? null)
     readonly property bool isPlaying: player !== null && player.isPlaying
-    property bool showLyrics: false
 
-    // ---- Live System Telemetry (CPU, RAM, Temp, Disk, Battery, Uptime) ----
     property real cpu: 0
     property real mem: 0
     property real disk: 0
     property real cpuTemp: 0
     property string uptime: ""
     property var _prevStat: null
-    property var cpuHist: []
-    property var memHist: []
-    property int hoverSample: -1
-
     readonly property var battery: UPower.displayDevice
     readonly property bool hasBattery: battery !== null && battery.isPresent && battery.isLaptopBattery
 
-    readonly property var ceilSteps: [5, 10, 15, 20, 30, 40, 50, 75, 100]
-    function ceilFor(arr) {
-        let m = 0;
-        for (let i = 0; i < arr.length; i++) if (arr[i] > m) m = arr[i];
-        m *= 1.22;
-        for (let i = 0; i < ceilSteps.length; i++) if (m <= ceilSteps[i]) return ceilSteps[i];
-        return 100;
-    }
-    readonly property int cpuCeil: ceilFor(cpuHist)
-    readonly property int memCeil: ceilFor(memHist)
-
-    function pushSample(arr, v) {
-        const next = arr.slice(-47);
-        next.push(v);
-        return next;
-    }
-
     function parseStat(t) {
         const f = t.split("\n")[0].trim().split(/\s+/).slice(1).map(Number);
-        const idleT = f[3] + (f[4] || 0);
-        const total = f.reduce((a, b) => a + b, 0);
+        const idleT = f[3] + (f[4] || 0), total = f.reduce((a, b) => a + b, 0);
         if (_prevStat) {
             const dt = total - _prevStat.total, di = idleT - _prevStat.idle;
-            if (dt > 0) {
-                cpu = Math.max(0, Math.min(1, 1 - di / dt));
-                cpuHist = pushSample(cpuHist, Math.round(cpu * 1000) / 10);
-            }
+            if (dt > 0) cpu = Math.max(0, Math.min(1, 1 - di / dt));
         }
         _prevStat = { total: total, idle: idleT };
     }
-
     function parseMem(t) {
         const get = k => Number((t.match(new RegExp(k + ":\\s+(\\d+)")) || [0, 0])[1]);
         const total = get("MemTotal"), avail = get("MemAvailable");
-        if (total > 0) {
-            mem = 1 - avail / total;
-            memHist = pushSample(memHist, Math.round(mem * 1000) / 10);
-        }
+        if (total > 0) mem = 1 - avail / total;
     }
-
     function parseUptime(t) {
         const s = Math.floor(Number(t.split(" ")[0]));
         const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
         uptime = (d > 0 ? d + "d " : "") + h + "h " + m + "m";
     }
-
     FileView { id: statFile; path: "/proc/stat"; onLoaded: face.parseStat(text()) }
     FileView { id: memFile; path: "/proc/meminfo"; onLoaded: face.parseMem(text()) }
     FileView { id: upFile; path: "/proc/uptime"; onLoaded: face.parseUptime(text()) }
     FileView {
         id: tempFile
         path: "/sys/class/thermal/thermal_zone2/temp"
-        onLoaded: {
-            const v = Number(text().trim());
-            if (!isNaN(v) && v > 0) face.cpuTemp = Math.round(v / 1000);
-        }
+        onLoaded: { const v = Number(text().trim()); if (!isNaN(v) && v > 0) face.cpuTemp = Math.round(v / 1000); }
     }
-
     Process {
         id: dfProc
         command: ["df", "--output=pcent", "/"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                const m = text.match(/(\d+)%/);
-                if (m) face.disk = Number(m[1]) / 100;
-            }
-        }
-    }
-
-    Timer {
-        interval: 1500
-        running: face.active
-        repeat: true
-        triggeredOnStart: true
-        onTriggered: {
-            statFile.reload();
-            memFile.reload();
-            upFile.reload();
-            tempFile.reload();
-            graphCanvas.requestPaint();
-        }
+        stdout: StdioCollector { onStreamFinished: { const m = text.match(/(\d+)%/); if (m) face.disk = Number(m[1]) / 100; } }
     }
     Timer {
-        interval: 30000
-        running: face.active
-        repeat: true
-        triggeredOnStart: true
-        onTriggered: dfProc.running = true
+        interval: 1500; running: face.active; repeat: true; triggeredOnStart: true
+        onTriggered: { statFile.reload(); memFile.reload(); upFile.reload(); tempFile.reload(); }
     }
+    Timer { interval: 30000; running: face.active; repeat: true; triggeredOnStart: true; onTriggered: dfProc.running = true }
 
-    // Subtle vertical hairlines separating the 3 stages (Pocket-Dots style)
-    Rectangle {
-        x: 332; y: 34
-        width: 1; height: face.faceH - 68
-        color: Qt.rgba(1, 1, 1, 0.07)
-        opacity: face.wingL
-    }
-    Rectangle {
-        x: face.faceW - 333; y: 34
-        width: 1; height: face.faceH - 68
-        color: Qt.rgba(1, 1, 1, 0.07)
-        opacity: face.wingR
-    }
-
-    // =========================================================================
-    // LEFT WING: CLEAN BORDERLESS CHRONO-CALENDAR (No small squares!)
-    // =========================================================================
+    // ---- backdrop: the cover art, blurred, as ambient light; soft glows drifting behind the dials; a faint dot grid
     Item {
-        id: leftWing
-        x: 22 + (1 - face.wingL) * 110
-        y: 18
-        width: 294
-        height: face.faceH - 36
-        opacity: Math.min(1, face.wingL * 1.4)
-        scale: 0.90 + 0.10 * face.wingL
-
-        WheelHandler {
-            onWheel: event => face.stepMonth(event.angleDelta.y > 0 ? -1 : 1)
-        }
-
-        ColumnLayout {
+        id: backdrop
+        anchors.fill: parent
+        z: -1
+        opacity: Math.min(1, face.pop)
+        Image {
+            id: bgArt
             anchors.fill: parent
-            spacing: 8
-
-            // ---- Live Chrono Header ----
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 8
-
-                ColumnLayout {
-                    spacing: -2
-                    RowLayout {
-                        spacing: 6
-                        Text {
-                            text: Qt.formatDateTime(face.now, "HH:mm")
-                            color: Theme.fg
-                            font.family: Theme.font
-                            font.pixelSize: 34
-                            font.bold: true
-                        }
-                        Rectangle {
-                            Layout.alignment: Qt.AlignVCenter
-                            width: 32; height: 20
-                            radius: 10
-                            color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.18)
-                            Text {
-                                anchors.centerIn: parent
-                                text: Qt.formatDateTime(face.now, "ss")
-                                color: Theme.accent
-                                font.family: Theme.font
-                                font.pixelSize: 11
-                                font.bold: true
-                            }
-                        }
-                    }
-                    Text {
-                        text: Qt.formatDateTime(face.now, "dddd · d MMMM yyyy")
-                        color: Theme.fgDim
-                        font.family: Theme.font
-                        font.pixelSize: 11
-                    }
-                }
-
-                Item { Layout.fillWidth: true }
-
-                // Jump to Today pill when browsing other months
-                Rectangle {
-                    visible: !face.isCurrentMonth
-                    width: 56; height: 24
-                    radius: 12
-                    color: todayHover.containsMouse ? Theme.accent : Qt.rgba(1, 1, 1, 0.08)
-                    Text {
-                        anchors.centerIn: parent
-                        text: "Today"
-                        color: todayHover.containsMouse ? Theme.accentText : Theme.accent
-                        font.family: Theme.font
-                        font.pixelSize: 11
-                        font.bold: true
-                    }
-                    MouseArea {
-                        id: todayHover
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        onClicked: face.goToToday()
-                    }
-                }
-            }
-
-            // Live 60-second smooth sweep bar
+            source: face.player?.trackArtUrl ?? ""
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            visible: false
+        }
+        MultiEffect {
+            anchors.fill: parent
+            source: bgArt
+            visible: bgArt.status === Image.Ready
+            blurEnabled: true
+            blur: 1
+            blurMax: 64
+            saturation: 0.2
+            opacity: 0.32
+        }
+        // glows: one behind each dial, drifting slowly (only while the dashboard is open)
+        Repeater {
+            model: [
+                { x: face.leftX, c: Theme.accent2 },
+                { x: face.midX, c: Theme.accent },
+                { x: face.rightX, c: Theme.accentContainer }
+            ]
             Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 3
-                radius: 1.5
-                color: Qt.rgba(1, 1, 1, 0.08)
-                Rectangle {
-                    width: Math.max(6, parent.width * (face.now.getSeconds() / 59))
-                    height: parent.height
-                    radius: 1.5
-                    color: Theme.accent
-                    Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+                id: glow
+                required property var modelData
+                required property int index
+                property real drift: 0
+                SequentialAnimation on drift {
+                    running: face.active; loops: Animation.Infinite
+                    NumberAnimation { from: 0; to: 1; duration: 5200 + glow.index * 1300; easing.type: Easing.InOutSine }
+                    NumberAnimation { from: 1; to: 0; duration: 5200 + glow.index * 1300; easing.type: Easing.InOutSine }
                 }
+                width: 420; height: 420; radius: 210
+                x: modelData.x - 210 + (drift - 0.5) * 60
+                y: face.dialY - 210 + (0.5 - drift) * 30
+                gradient: Gradient {
+                    orientation: Gradient.Vertical
+                    GradientStop { position: 0.0; color: "transparent" }
+                    GradientStop { position: 0.5; color: Qt.rgba(glow.modelData.c.r, glow.modelData.c.g, glow.modelData.c.b, 0.22) }
+                    GradientStop { position: 1.0; color: "transparent" }
+                }
+                layer.enabled: true
+                layer.effect: MultiEffect { blurEnabled: true; blur: 1; blurMax: 64 }
             }
-
-            // ---- Month Navigation Bar ----
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.topMargin: 4
-                spacing: 6
-
-                Text {
-                    text: Qt.formatDate(new Date(face.viewYear, face.viewMonth, 1, 12), "MMMM yyyy").toUpperCase()
-                    color: Theme.fg
-                    font.family: Theme.font
-                    font.pixelSize: 12
-                    font.bold: true
-                    font.letterSpacing: 1.2
-                    MouseArea {
-                        anchors.fill: parent
-                        enabled: !face.isCurrentMonth
-                        onClicked: face.goToToday()
+        }
+        // faint dot grid, fading towards the edges (painted once)
+        Canvas {
+            id: dotGrid
+            anchors.fill: parent
+            opacity: 0.5
+            onPaint: {
+                const ctx = getContext("2d");
+                ctx.reset();
+                for (let x = 12; x < width; x += 22)
+                    for (let y = 12; y < height; y += 22) {
+                        const dx = (x - width / 2) / (width / 2), dy = (y - height / 2) / (height / 2);
+                        const a = Math.max(0, 0.22 * (1 - Math.min(1, Math.hypot(dx * 0.9, dy * 1.1))));
+                        if (a <= 0.01) continue;
+                        ctx.fillStyle = Qt.rgba(Theme.fg.r, Theme.fg.g, Theme.fg.b, a);
+                        ctx.fillRect(x, y, 1.6, 1.6);
                     }
-                }
-
-                Item { Layout.fillWidth: true }
-
-                Repeater {
-                    model: [
-                        { label: "󰅁", step: -1 },
-                        { label: "󰅂", step: 1 }
-                    ]
-                    Rectangle {
-                        id: navBtn
-                        required property var modelData
-                        width: 26; height: 26
-                        radius: 13
-                        color: navArea.containsMouse ? Theme.accent : Qt.rgba(1, 1, 1, 0.07)
-                        Text {
-                            anchors.centerIn: parent
-                            text: navBtn.modelData.label
-                            color: navArea.containsMouse ? Theme.accentText : Theme.fg
-                            font.family: Theme.font
-                            font.pixelSize: 13
-                        }
-                        MouseArea {
-                            id: navArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            onClicked: face.stepMonth(navBtn.modelData.step)
-                        }
-                    }
-                }
             }
-
-            // ---- Weekday Headers ----
-            Row {
-                Layout.fillWidth: true
-                spacing: 4
-                Repeater {
-                    model: ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
-                    Text {
-                        required property string modelData
-                        required property int index
-                        width: 38
-                        horizontalAlignment: Text.AlignHCenter
-                        text: modelData
-                        color: index >= 5 ? Theme.accent2 : Theme.fgDim
-                        font.family: Theme.font
-                        font.pixelSize: 11
-                        font.bold: true
-                    }
-                }
-            }
-
-            // ---- Clean 6x7 Day Grid (NO small background squares; pill ONLY on Today / Hover!) ----
-            Grid {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                columns: 7
-                columnSpacing: 4
-                rowSpacing: 4
-
-                Repeater {
-                    model: face.gridCells
-
-                    Item {
-                        id: dayCell
-                        required property var modelData
-                        required property int index
-                        width: 38
-                        height: 34
-
-                        readonly property bool isToday: modelData.isToday
-                        readonly property bool inMonth: modelData.inMonth
-
-                        Rectangle {
-                            anchors.centerIn: parent
-                            width: dayCell.isToday ? 34 : (dayHover.containsMouse ? 32 : 0)
-                            height: dayCell.isToday ? 30 : (dayHover.containsMouse ? 28 : 0)
-                            radius: 10
-                            visible: dayCell.isToday || dayHover.containsMouse
-                            color: dayCell.isToday
-                                ? Theme.accent
-                                : Qt.rgba(1, 1, 1, 0.10)
-                            Behavior on width { NumberAnimation { duration: 130; easing.type: Easing.OutBack } }
-                        }
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: dayCell.modelData.day
-                            color: dayCell.isToday
-                                ? Theme.accentText
-                                : (dayCell.inMonth
-                                    ? (dayCell.modelData.isWeekend ? Theme.accent2 : Theme.fg)
-                                    : Qt.rgba(Theme.fgDim.r, Theme.fgDim.g, Theme.fgDim.b, 0.26))
-                            font.family: Theme.font
-                            font.pixelSize: 13
-                            font.bold: dayCell.isToday || dayHover.containsMouse
-                        }
-
-                        MouseArea {
-                            id: dayHover
-                            anchors.fill: parent
-                            hoverEnabled: true
-                        }
-                    }
-                }
-            }
+            Connections { target: Theme; function onFgChanged() { dotGrid.requestPaint(); } }
         }
     }
 
-    // =========================================================================
-    // CENTRE HUB: TURNTABLE, RADIAL SPECTRUM CROWN & LYRICS STAGE
-    // =========================================================================
+    // ---- beams between the dials (with a pulse running along each) ----
+    component Beam: Item {
+        id: bm
+        property real x1: 0
+        property real x2: 0
+        property real y0: face.dialY
+        property bool reverse: false
+        anchors.fill: parent
+        opacity: Math.min(1, face.wings)
+        Rectangle {
+            x: Math.min(bm.x1, bm.x2); y: bm.y0
+            width: Math.abs(bm.x2 - bm.x1) * Math.min(1, face.wings); height: 1
+            color: Qt.rgba(Theme.fg.r, Theme.fg.g, Theme.fg.b, 0.14)
+        }
+        Rectangle {
+            property real t: 0
+            NumberAnimation on t { from: 0; to: 1; duration: 1600; loops: Animation.Infinite; running: face.active }
+            readonly property real px: bm.reverse ? bm.x2 + (bm.x1 - bm.x2) * t : bm.x1 + (bm.x2 - bm.x1) * t
+            x: px - 3; y: bm.y0 - 3
+            width: 7; height: 7; radius: 3.5
+            color: Theme.accent
+            opacity: Math.sin(Math.PI * t) * 0.9
+            Rectangle { anchors.centerIn: parent; width: 18; height: 18; radius: 9; z: -1; color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.22) }
+        }
+    }
+    Beam { x1: face.leftX + face.sideR * face.wings + 4; x2: face.midX - 150; reverse: true }
+    Beam { x1: face.midX + 150; x2: face.rightX - face.sideR * face.wings - 4 }
+
+    // ---- an arc meter: track + value, 240 degrees, starting bottom-left ----
+    component Meter: Shape {
+        id: mt
+        property real r: 100
+        property real value: 0
+        property color col: Theme.accent
+        property real thick: 9
+        property real shown: value * face.sweep
+        Behavior on shown { NumberAnimation { duration: 500; easing.type: Easing.OutCubic } }
+        anchors.fill: parent
+        preferredRendererType: Shape.CurveRenderer
+        ShapePath {
+            strokeColor: Qt.rgba(mt.col.r, mt.col.g, mt.col.b, 0.14)
+            strokeWidth: mt.thick
+            fillColor: "transparent"
+            capStyle: ShapePath.RoundCap
+            PathAngleArc { centerX: mt.width / 2; centerY: mt.height / 2; radiusX: mt.r; radiusY: mt.r; startAngle: 150; sweepAngle: 240 }
+        }
+        ShapePath {
+            strokeColor: mt.col
+            strokeWidth: mt.thick
+            fillColor: "transparent"
+            capStyle: ShapePath.RoundCap
+            PathAngleArc { centerX: mt.width / 2; centerY: mt.height / 2; radiusX: mt.r; radiusY: mt.r; startAngle: 150; sweepAngle: Math.max(0.5, 240 * Math.min(1, mt.shown)) }
+        }
+    }
+
+    // a dial's disc
+    component Disc: Rectangle {
+        property real r: face.sideR
+        width: r * 2; height: r * 2; radius: r
+        color: Qt.rgba(Theme.bg.r, Theme.bg.g, Theme.bg.b, 0.55)
+        border.color: Qt.rgba(1, 1, 1, 0.08)
+        border.width: 1
+        antialiasing: true
+    }
+
+    // =================================================================== LEFT: the gauge
     Item {
-        id: centerHub
-        x: face.cx - width / 2
-        y: 16
-        width: 312
-        height: face.faceH - 32
-        opacity: Math.min(1, face.hubGrow * 1.4)
-        scale: 0.88 + 0.12 * face.hubGrow
-
-        Item {
-            id: platterStage
-            width: 248
-            height: 248
-            anchors.horizontalCenter: parent.horizontalCenter
-            y: 4
-
-            // Breathing ambient halo when playing
+        id: gauge
+        width: face.sideR * 2; height: face.sideR * 2
+        x: face.midX + (face.leftX - face.midX) * face.wings - width / 2
+        y: face.dialY - height / 2
+        opacity: Math.min(1, face.wings * 1.4)
+        scale: 0.7 + 0.3 * Math.min(1, face.wings)
+        Disc { anchors.centerIn: parent }
+        Meter { r: 122; value: face.cpu; col: Theme.accent }
+        Meter { r: 104; value: face.mem; col: Theme.accent2; thick: 7 }
+        Meter { r: 89; value: face.disk; col: Qt.rgba(Theme.fg.r, Theme.fg.g, Theme.fg.b, 0.75); thick: 5 }
+        // scale ticks round the outside
+        Repeater {
+            model: 13
             Rectangle {
-                anchors.centerIn: parent
-                width: face.isPlaying ? 232 : 204
-                height: width
-                radius: width / 2
-                color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, face.isPlaying ? 0.12 : 0.04)
-                Behavior on width { SpringAnimation { spring: 3.0; damping: 0.4 } }
+                required property int index
+                readonly property real a: (150 + index * 20) * Math.PI / 180
+                x: gauge.width / 2 + Math.cos(a) * 136 - 1
+                y: gauge.height / 2 + Math.sin(a) * 136 - 1
+                width: 2; height: 2; radius: 1
+                color: index % 3 === 0 ? Theme.fg : Theme.fgDim
+                opacity: index / 12 <= face.sweep ? 0.8 : 0
             }
-
-            // Counter-rotating outer tick ring (36 ticks)
-            Item {
-                anchors.fill: parent
-                rotation: -face.idle * 9
-                Repeater {
-                    model: 36
-                    Item {
-                        required property int index
-                        anchors.centerIn: parent
-                        rotation: index * 10
-                        Rectangle {
-                            x: -1
-                            y: -118
-                            width: index % 3 === 0 ? 2.0 : 1.2
-                            height: index % 3 === 0 ? 8 : 4
-                            radius: 1
-                            color: index % 3 === 0 ? Theme.accent : Qt.rgba(Theme.fgDim.r, Theme.fgDim.g, Theme.fgDim.b, 0.40)
-                        }
-                    }
+        }
+        Column {
+            anchors.centerIn: parent
+            anchors.verticalCenterOffset: -4
+            spacing: 0
+            Row {
+                anchors.horizontalCenter: parent.horizontalCenter
+                RollText { text: String(Math.round(face.cpu * 100 * face.sweep)); color: Theme.fg; font: Qt.font({ family: Theme.font, pixelSize: 40, bold: true }) }
+                Text { text: "%"; color: Theme.fgDim; font.family: Theme.font; font.pixelSize: 18; anchors.bottom: parent.bottom; anchors.bottomMargin: 7 }
+            }
+            Text { anchors.horizontalCenter: parent.horizontalCenter; text: "cpu"; color: Theme.accent; font.family: Theme.font; font.pixelSize: 11; font.bold: true; font.letterSpacing: 2 }
+        }
+        // legend + temperature, in the gap at the bottom of the arcs
+        Row {
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: parent.height - 52
+            spacing: 10
+            Repeater {
+                model: [
+                    { c: Theme.accent2, t: "mem " + Math.round(face.mem * 100) + "%" },
+                    { c: Qt.rgba(Theme.fg.r, Theme.fg.g, Theme.fg.b, 0.75), t: "disk " + Math.round(face.disk * 100) + "%" }
+                ]
+                Row {
+                    required property var modelData
+                    spacing: 4
+                    Rectangle { width: 6; height: 6; radius: 3; color: modelData.c; anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: modelData.t; color: Theme.fgDim; font.family: Theme.font; font.pixelSize: 10 }
                 }
             }
+        }
+        Rectangle {
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: parent.height - 30
+            width: tempT.implicitWidth + 18; height: 20; radius: 10
+            color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.16)
+            Text { id: tempT; anchors.centerIn: parent; text: "󰔏 " + face.cpuTemp + "°C"; color: Theme.accent; font.family: Theme.font; font.pixelSize: 10; font.bold: true }
+        }
+    }
 
-            // 32 radial audio-reactive spectrum bars around the vinyl rim
-            Item {
-                anchors.fill: parent
-                Repeater {
-                    model: 32
-                    Item {
-                        required property int index
-                        readonly property real rawLvl: (Audio.bars[index % 16] ?? 0) / 100
-                        readonly property real lvl: face.isPlaying ? rawLvl : 0.05 + 0.03 * Math.sin(face.idle * 2.2 + index * 0.4)
-                        anchors.centerIn: parent
-                        rotation: index * (360 / 32)
-                        Rectangle {
-                            x: -1.5
-                            y: -92 - parent.lvl * 22
-                            width: 3
-                            height: 4 + parent.lvl * 22
-                            radius: 1.5
-                            color: Qt.tint(Theme.accent, Qt.rgba(Theme.accent2.r, Theme.accent2.g, Theme.accent2.b, (index % 16) / 16))
-                            opacity: 0.85
-                            Behavior on height { NumberAnimation { duration: 65 } }
-                            Behavior on y { NumberAnimation { duration: 65 } }
-                        }
-                    }
-                }
+    // =================================================================== CENTRE: the record
+    Item {
+        id: rec
+        readonly property real rr: 150
+        width: rr * 2; height: rr * 2
+        x: face.midX - rr
+        y: face.dialY - rr - 22
+        scale: Math.max(0.01, face.pop)
+        opacity: Math.min(1, face.pop * 1.5)
+        z: 2
+
+        // audio bars round the record (32, from the cava feed), reaching outward
+        Repeater {
+            model: 40
+            Rectangle {
+                required property int index
+                readonly property real lvl: face.isPlaying ? (Audio.bars[index % Math.max(1, Audio.bars.length)] ?? 0) / 100 : 0.05
+                readonly property real a: index / 40 * 360
+                x: rec.rr - 1.5
+                y: rec.rr - 120 - h
+                property real h: 4 + 26 * lvl
+                width: 3; height: h; radius: 1.5
+                color: Qt.tint(Theme.accent, Qt.rgba(Theme.accent2.r, Theme.accent2.g, Theme.accent2.b, index / 40))
+                opacity: 0.85
+                transform: Rotation { origin.x: 1.5; origin.y: 120 + h; angle: a }
+                Behavior on h { NumberAnimation { duration: 70 } }
             }
-
-            // Spinning Vinyl Platter
-            Item {
-                id: vinylDisc
-                anchors.centerIn: parent
-                width: 172
-                height: 172
-                visible: !face.showLyrics || !Lyrics.hasLyrics
-                rotation: face.spinDeg
-
+        }
+        // the disc
+        Rectangle {
+            id: vinyl
+            anchors.centerIn: parent
+            width: 226; height: 226; radius: 113
+            color: "#0c0c10"
+            border.color: Qt.rgba(1, 1, 1, 0.08)
+            antialiasing: true
+            property real spin: 0
+            FrameAnimation { running: face.active && face.isPlaying; onTriggered: vinyl.spin = (vinyl.spin + frameTime * 30) % 360 }
+            rotation: vinyl.spin
+            // grooves
+            Repeater {
+                model: 5
                 Rectangle {
-                    anchors.fill: parent
-                    radius: width / 2
-                    color: "#111318"
-                    border.width: 2.2
-                    border.color: face.isPlaying ? Theme.accent : Theme.accentContainer
-                }
-                Repeater {
-                    model: [158, 144, 130]
-                    Rectangle {
-                        required property int modelData
-                        anchors.centerIn: parent
-                        width: modelData
-                        height: modelData
-                        radius: modelData / 2
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Qt.rgba(1, 1, 1, 0.07)
-                    }
-                }
-
-                Image {
-                    id: rawArt
+                    required property int index
                     anchors.centerIn: parent
-                    width: 120
-                    height: 120
+                    width: 210 - index * 20; height: width; radius: width / 2
+                    color: "transparent"
+                    border.color: Qt.rgba(1, 1, 1, 0.05)
+                }
+            }
+            // cover art, round
+            Item {
+                anchors.centerIn: parent
+                width: 120; height: 120
+                layer.enabled: true
+                layer.effect: MultiEffect { maskEnabled: true; maskSource: artMask; maskThresholdMin: 0.5; maskSpreadAtMin: 1 }
+                Image {
+                    id: art
+                    anchors.fill: parent
                     source: face.player?.trackArtUrl ?? ""
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
-                    smooth: true
-                    visible: false
+                    visible: status === Image.Ready
                 }
-                Item {
-                    id: artCircleMask
-                    width: 120
-                    height: 120
-                    layer.enabled: true
-                    layer.smooth: true
-                    visible: false
-                    Rectangle { anchors.fill: parent; radius: 60 }
-                }
-                MultiEffect {
-                    anchors.fill: rawArt
-                    source: rawArt
-                    visible: rawArt.status === Image.Ready
-                    maskEnabled: true
-                    maskSource: artCircleMask
-                    maskSpreadAtMin: 1.0
-                    maskThresholdMin: 0.5
-                    maskThresholdMax: 1.0
-                }
-
-                Text {
-                    anchors.centerIn: parent
-                    visible: rawArt.status !== Image.Ready
-                    text: "󰀥"
-                    color: Theme.accent
-                    font.family: Theme.font
-                    font.pixelSize: 46
-                }
-
-                Rectangle {
-                    anchors.centerIn: parent
-                    width: 32; height: 32; radius: 16
-                    color: Qt.rgba(Theme.bg.r, Theme.bg.g, Theme.bg.b, 0.90)
-                    border.width: 2
-                    border.color: Theme.accent
-                    Rectangle {
-                        anchors.centerIn: parent
-                        width: 7; height: 7; radius: 3.5
-                        color: Theme.fg
-                    }
-                }
+                Rectangle { anchors.fill: parent; visible: art.status !== Image.Ready; color: Theme.accentContainer
+                    Text { anchors.centerIn: parent; text: "󰎈"; color: Theme.accent; font.family: Theme.font; font.pixelSize: 40 } }
             }
-
-            // Tonearm
-            Item {
-                visible: vinylDisc.visible
-                x: 208
-                y: 34
-                width: 20
-                height: 20
-                rotation: face.isPlaying ? 24 : 4
-                Behavior on rotation { SpringAnimation { spring: 2.8; damping: 0.42 } }
-
-                Rectangle {
-                    anchors.centerIn: parent
-                    width: 16; height: 16; radius: 8
-                    color: Theme.surface
-                    border.width: 2
-                    border.color: Theme.accent
-                }
-                Rectangle {
-                    x: 8.5; y: 10
-                    width: 3; height: 78
-                    radius: 1.5
-                    color: Theme.fgDim
-                    Rectangle {
-                        x: -3.5; y: 70
-                        width: 10; height: 14
-                        radius: 4
-                        color: Theme.accent
-                    }
-                }
-            }
-
-            // Live 3-Line Lyrics Stage (click platter to toggle when lyrics exist)
-            Rectangle {
-                anchors.centerIn: parent
-                width: 234
-                height: 174
-                radius: 20
-                visible: face.showLyrics && Lyrics.hasLyrics
-                color: Qt.rgba(Theme.surface.r, Theme.surface.g, Theme.surface.b, 0.85)
-                border.color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.55)
-                border.width: 1.4
-
-                ColumnLayout {
-                    anchors { fill: parent; margins: 16 }
-                    spacing: 6
-
-                    Text {
-                        Layout.fillWidth: true
-                        horizontalAlignment: Text.AlignHCenter
-                        text: "LIVE LYRICS  ·  TAP TO FLIP"
-                        color: Theme.accent
-                        font.family: Theme.font
-                        font.pixelSize: 9
-                        font.bold: true
-                        font.letterSpacing: 1.2
-                    }
-
-                    Item { Layout.fillHeight: true }
-
-                    Text {
-                        Layout.fillWidth: true
-                        horizontalAlignment: Text.AlignHCenter
-                        textFormat: Text.StyledText
-                        text: Lyrics.line !== "" ? Lyrics.lineHtml : "♪"
-                        color: Theme.fg
-                        wrapMode: Text.WordWrap
-                        maximumLineCount: 3
-                        elide: Text.ElideRight
-                        font.family: Theme.font
-                        font.pixelSize: 15
-                        font.bold: true
-                    }
-
-                    Text {
-                        Layout.fillWidth: true
-                        horizontalAlignment: Text.AlignHCenter
-                        text: Lyrics.next !== "" ? Lyrics.next : "· · ·"
-                        color: Theme.fgDim
-                        elide: Text.ElideRight
-                        font.family: Theme.font
-                        font.pixelSize: 12
-                    }
-
-                    Item { Layout.fillHeight: true }
-                }
-            }
-
-            MouseArea {
-                anchors.fill: parent
-                enabled: Lyrics.hasLyrics
-                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                onClicked: face.showLyrics = !face.showLyrics
+            Rectangle { id: artMask; anchors.centerIn: parent; width: 120; height: 120; radius: 60; visible: false; layer.enabled: true }
+            Rectangle { anchors.centerIn: parent; width: 12; height: 12; radius: 6; color: "#0c0c10"; border.color: Theme.accent; border.width: 2 }
+        }
+        // a quiet current round the record, pulsing with the bass
+        EdgeSpark {
+            anchors.fill: parent
+            visible: Theme.lightning && face.active
+            ring: true
+            cx: rec.rr; cy: rec.rr
+            r: 117
+            intensity: face.isPlaying ? 0.08 + 0.2 * Math.min(1, (Audio.bars[1] ?? 0) / 100) : 0.05
+            speed: face.isPlaying ? 1.3 : 0.5
+        }
+    }
+    // title, lyric/artist, transport
+    Column {
+        anchors.horizontalCenter: rec.horizontalCenter
+        y: rec.y + rec.height - 4
+        spacing: 3
+        opacity: Math.min(1, face.pop * 1.4)
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: Math.min(implicitWidth, 380)
+            text: face.player ? (face.player.trackTitle || "Unknown track") : "Nothing playing"
+            color: Theme.fg; elide: Text.ElideRight; horizontalAlignment: Text.AlignHCenter
+            font.family: Theme.font; font.pixelSize: 16; font.bold: true
+        }
+        Text {
+            id: subLine
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: Math.min(implicitWidth, 420)
+            readonly property bool lyric: Lyrics.hasLyrics && Lyrics.line !== ""
+            text: lyric ? Lyrics.line : (face.player?.trackArtist ?? "")
+            color: lyric ? Theme.accent : Theme.fgDim
+            elide: Text.ElideRight; horizontalAlignment: Text.AlignHCenter
+            font.family: Theme.font; font.pixelSize: 12; font.italic: lyric
+            onTextChanged: subIn.restart()
+            transform: Translate { id: subShift }
+            ParallelAnimation {
+                id: subIn
+                NumberAnimation { target: subShift; property: "y"; from: 8; to: 0; duration: 240; easing.type: Easing.OutCubic }
+                NumberAnimation { target: subLine; property: "opacity"; from: 0; to: 1; duration: 240 }
             }
         }
-
-        ColumnLayout {
-            anchors {
-                top: platterStage.bottom
-                topMargin: 6
-                left: parent.left
-                right: parent.right
-                bottom: parent.bottom
-            }
-            spacing: 6
-
-            Text {
-                Layout.fillWidth: true
-                horizontalAlignment: Text.AlignHCenter
-                text: face.player ? (face.player.trackTitle || "Unknown Track") : "Nothing Playing"
-                color: Theme.fg
-                elide: Text.ElideRight
-                font.family: Theme.font
-                font.pixelSize: 15
-                font.bold: true
-            }
-            Text {
-                Layout.fillWidth: true
-                horizontalAlignment: Text.AlignHCenter
-                text: face.player
-                    ? (face.player.trackArtist || face.player.identity || "Unknown Artist")
-                    : "Start playback in any player"
-                color: Theme.fgDim
-                elide: Text.ElideRight
-                font.family: Theme.font
-                font.pixelSize: 12
-            }
-
-            // Compact live lyric pill underneath
+    }
+    Row {
+        anchors.horizontalCenter: rec.horizontalCenter
+        y: face.faceH - 52
+        spacing: 12
+        opacity: Math.min(1, face.pop * 1.4)
+        Repeater {
+            model: [{ act: "prev", icon: "󰒮" }, { act: "play", icon: "" }, { act: "next", icon: "󰒭" }]
             Rectangle {
-                Layout.alignment: Qt.AlignHCenter
-                Layout.preferredWidth: 276
-                Layout.preferredHeight: 28
-                radius: 14
-                color: Qt.rgba(1, 1, 1, 0.06)
-                border.color: Lyrics.hasLyrics ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35) : "transparent"
-                border.width: 1
-
+                id: tb
+                required property var modelData
+                readonly property bool main: modelData.act === "play"
+                width: main ? 64 : 42; height: 38; radius: 19
+                color: main ? Theme.accent : (tbm.containsMouse ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(1, 1, 1, 0.06))
+                scale: tbm.pressed ? 0.9 : 1
+                Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutBack } }
                 Text {
-                    anchors { fill: parent; leftMargin: 14; rightMargin: 14 }
-                    verticalAlignment: Text.AlignVCenter
-                    horizontalAlignment: Text.AlignHCenter
-                    textFormat: Lyrics.hasLyrics ? Text.StyledText : Text.PlainText
-                    text: Lyrics.hasLyrics
-                        ? (Lyrics.line !== "" ? Lyrics.lineHtml : "♪ Instrumental")
-                        : (face.isPlaying ? "󰎆  Audio stream active" : "󰎆  Standby")
-                    color: Lyrics.hasLyrics ? Theme.fg : Theme.fgDim
-                    elide: Text.ElideRight
-                    font.family: Theme.font
-                    font.pixelSize: 12
+                    anchors.centerIn: parent
+                    text: tb.main ? (face.isPlaying ? "󰏤" : "󰐊") : tb.modelData.icon
+                    color: tb.main ? Theme.accentText : Theme.fg
+                    font.family: Theme.font; font.pixelSize: 17
                 }
-
                 MouseArea {
-                    anchors.fill: parent
-                    enabled: Lyrics.hasLyrics
-                    onClicked: face.showLyrics = !face.showLyrics
-                }
-            }
-
-            // Rounded Pill Transport Buttons
-            Row {
-                Layout.alignment: Qt.AlignHCenter
-                Layout.topMargin: 2
-                spacing: 12
-                opacity: face.player ? 1.0 : 0.4
-
-                Repeater {
-                    model: [
-                        { icon: "󰒮", act: "prev",   w: 48 },
-                        { icon: "play", act: "toggle", w: 68 },
-                        { icon: "󰒭", act: "next",   w: 48 }
-                    ]
-
-                    Rectangle {
-                        id: tBtn
-                        required property var modelData
-                        readonly property bool isMain: modelData.act === "toggle"
-                        width: modelData.w
-                        height: 34
-                        radius: 17
-                        color: tArea.containsMouse
-                            ? Theme.accent
-                            : (isMain ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.22) : Qt.rgba(1, 1, 1, 0.08))
-                        border.color: isMain ? Theme.accent : "transparent"
-                        border.width: isMain ? 1.2 : 0
-                        scale: tArea.pressed ? 0.93 : (tArea.containsMouse ? 1.05 : 1.0)
-                        Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutBack } }
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: tBtn.modelData.icon === "play"
-                                ? (face.isPlaying ? "󰏤" : "󰐊")
-                                : tBtn.modelData.icon
-                            color: tArea.containsMouse
-                                ? Theme.accentText
-                                : (tBtn.isMain ? Theme.accent : Theme.fg)
-                            font.family: Theme.font
-                            font.pixelSize: tBtn.isMain ? 20 : 17
-                        }
-
-                        MouseArea {
-                            id: tArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            onClicked: {
-                                const p = face.player;
-                                if (!p) return;
-                                if (tBtn.modelData.act === "prev") p.previous();
-                                else if (tBtn.modelData.act === "next") p.next();
-                                else p.togglePlaying();
-                            }
-                        }
+                    id: tbm
+                    anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        const p = face.player; if (!p) return;
+                        if (tb.modelData.act === "prev") p.previous(); else if (tb.modelData.act === "next") p.next(); else p.togglePlaying();
                     }
                 }
             }
         }
     }
 
-    // =========================================================================
-    // RIGHT WING: AUTO-SCALING TELEMETRY SPARKLINES & LIQUID ORB GAUGES
-    // =========================================================================
+    // =================================================================== RIGHT: the month ring
     Item {
-        id: rightWing
-        x: face.faceW - width - 22 - (1 - face.wingR) * 110
-        y: 18
-        width: 294
-        height: face.faceH - 36
-        opacity: Math.min(1, face.wingR * 1.4)
-        scale: 0.90 + 0.10 * face.wingR
-
-        ColumnLayout {
+        id: month
+        width: face.sideR * 2; height: face.sideR * 2
+        x: face.midX + (face.rightX - face.midX) * face.wings - width / 2
+        y: face.dialY - height / 2
+        opacity: Math.min(1, face.wings * 1.4)
+        scale: 0.7 + 0.3 * Math.min(1, face.wings)
+        readonly property int days: new Date(face.now.getFullYear(), face.now.getMonth() + 1, 0).getDate()
+        readonly property int today: face.now.getDate()
+        property int hovered: -1
+        Disc { anchors.centerIn: parent }
+        // day progress arc (how far through today)
+        Shape {
             anchors.fill: parent
-            spacing: 8
-
-            // ---- Telemetry Header + CPU Temp Pill (NO twisted sliver!) ----
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 6
-
-                ColumnLayout {
-                    spacing: 0
-                    Text {
-                        text: "Telemetry"
-                        color: Theme.fg
-                        font.family: Theme.font
-                        font.pixelSize: 16
-                        font.bold: true
-                    }
-                    Text {
-                        text: face.uptime !== "" ? ("Up " + face.uptime) : "Live sensors"
-                        color: Theme.fgDim
-                        font.family: Theme.font
-                        font.pixelSize: 11
-                    }
+            preferredRendererType: Shape.CurveRenderer
+            ShapePath {
+                strokeColor: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.5)
+                strokeWidth: 2
+                fillColor: "transparent"
+                capStyle: ShapePath.RoundCap
+                PathAngleArc {
+                    centerX: month.width / 2; centerY: month.height / 2; radiusX: 98; radiusY: 98; startAngle: -90
+                    sweepAngle: Math.max(0.5, 360 * face.sweep * (face.now.getHours() * 3600 + face.now.getMinutes() * 60 + face.now.getSeconds()) / 86400)
                 }
-
-                Item { Layout.fillWidth: true }
-
+            }
+        }
+        Repeater {
+            model: month.days
+            Item {
+                id: day
+                required property int index
+                readonly property int n: index + 1
+                readonly property real a: (index / month.days * 360 - 90) * Math.PI / 180
+                readonly property bool isToday: n === month.today
+                readonly property bool past: n < month.today
+                readonly property real lit: Math.max(0, Math.min(1, face.sweep * month.days * 1.15 - index))
+                readonly property real s: isToday ? 14 : (month.hovered === index ? 11 : 7)
+                x: month.width / 2 + Math.cos(a) * 120 - 12
+                y: month.height / 2 + Math.sin(a) * 120 - 12
+                width: 24; height: 24
                 Rectangle {
-                    visible: face.cpuTemp > 0
-                    width: 66; height: 26
-                    radius: 13
-                    color: face.cpuTemp >= 78 ? Theme.warn : Qt.rgba(Theme.accent2.r, Theme.accent2.g, Theme.accent2.b, 0.16)
-                    border.color: face.cpuTemp >= 78 ? Theme.warn : Qt.rgba(Theme.accent2.r, Theme.accent2.g, Theme.accent2.b, 0.5)
-                    border.width: 1
-                    Text {
-                        anchors.centerIn: parent
-                        text: "󰔏 " + face.cpuTemp + "°C"
-                        color: face.cpuTemp >= 78 ? Theme.accentText : Theme.accent2
-                        font.family: Theme.font
-                        font.pixelSize: 11
-                        font.bold: true
-                    }
-                }
-            }
-
-            // ---- Dual Auto-Scaling Sparkline Stage (Pocket-Dots style) ----
-            Rectangle {
-                id: graphCard
-                Layout.fillWidth: true
-                Layout.preferredHeight: 196
-                radius: 16
-                color: Qt.rgba(1, 1, 1, 0.05)
-                border.color: Qt.rgba(1, 1, 1, 0.08)
-                border.width: 1
-
-                Canvas {
-                    id: graphCanvas
-                    anchors { fill: parent; margins: 12 }
+                    anchors.centerIn: parent
+                    width: day.s; height: day.s; radius: day.s / 2
+                    Behavior on width { SpringAnimation { spring: 5; damping: 0.45 } }
+                    Behavior on height { SpringAnimation { spring: 5; damping: 0.45 } }
+                    color: day.isToday ? Theme.accent : (day.past ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.55) : "transparent")
+                    border.color: day.isToday ? Theme.accent : Qt.rgba(Theme.fg.r, Theme.fg.g, Theme.fg.b, 0.35)
+                    border.width: day.past || day.isToday ? 0 : 1
+                    scale: day.lit
                     antialiasing: true
-
-                    function drawBand(ctx, arr, ceil, y0, h, col) {
-                        const w = width;
-                        ctx.strokeStyle = Qt.rgba(1, 1, 1, 0.06);
-                        ctx.lineWidth = 1;
-                        ctx.beginPath();
-                        ctx.moveTo(0, y0 + h);
-                        ctx.lineTo(w, y0 + h);
-                        ctx.stroke();
-
-                        if (!arr || arr.length < 2) return;
-                        const n = arr.length;
-                        const stepX = w / Math.max(1, n - 1);
-
-                        ctx.beginPath();
-                        ctx.moveTo(0, y0 + h);
-                        for (let i = 0; i < n; i++) {
-                            const px = i * stepX;
-                            const py = y0 + h - Math.min(1, arr[i] / ceil) * (h - 18);
-                            ctx.lineTo(px, py);
-                        }
-                        ctx.lineTo((n - 1) * stepX, y0 + h);
-                        ctx.closePath();
-                        ctx.fillStyle = Qt.rgba(col.r, col.g, col.b, 0.14);
-                        ctx.fill();
-
-                        ctx.beginPath();
-                        for (let i = 0; i < n; i++) {
-                            const px = i * stepX;
-                            const py = y0 + h - Math.min(1, arr[i] / ceil) * (h - 18);
-                            if (i === 0) ctx.moveTo(px, py);
-                            else ctx.lineTo(px, py);
-                        }
-                        ctx.strokeStyle = col;
-                        ctx.lineWidth = 2.0;
-                        ctx.stroke();
-
-                        const idx = (face.hoverSample >= 0 && face.hoverSample < n) ? face.hoverSample : (n - 1);
-                        const tx = idx * stepX;
-                        const ty = y0 + h - Math.min(1, arr[idx] / ceil) * (h - 18);
-
-                        if (face.hoverSample >= 0) {
-                            ctx.strokeStyle = Qt.rgba(1, 1, 1, 0.25);
-                            ctx.lineWidth = 1;
-                            ctx.beginPath();
-                            ctx.moveTo(tx, y0 + 14);
-                            ctx.lineTo(tx, y0 + h);
-                            ctx.stroke();
-                        }
-
-                        ctx.beginPath();
-                        ctx.arc(tx, ty, 4, 0, Math.PI * 2);
-                        ctx.fillStyle = col;
-                        ctx.fill();
-                        ctx.lineWidth = 1.5;
-                        ctx.strokeStyle = Theme.bg;
-                        ctx.stroke();
+                }
+                // today breathes
+                Rectangle {
+                    visible: day.isToday
+                    anchors.centerIn: parent
+                    width: 26; height: 26; radius: 13
+                    color: "transparent"
+                    border.color: Theme.accent
+                    border.width: 1.5
+                    SequentialAnimation on scale {
+                        running: face.active && day.isToday; loops: Animation.Infinite
+                        NumberAnimation { from: 0.7; to: 1.25; duration: 1100; easing.type: Easing.OutCubic }
+                        NumberAnimation { from: 1.25; to: 0.7; duration: 1100; easing.type: Easing.InCubic }
                     }
-
-                    onPaint: {
-                        const ctx = getContext("2d");
-                        ctx.reset();
-                        const bandH = height / 2 - 4;
-                        drawBand(ctx, face.cpuHist, face.cpuCeil, 0, bandH, Theme.accent);
-                        drawBand(ctx, face.memHist, face.memCeil, bandH + 8, bandH, Theme.accent2);
-                    }
+                    opacity: 0.7 * day.lit
                 }
-
-                Text {
-                    x: 14; y: 8
-                    text: "CPU · max " + face.cpuCeil + "%"
-                    color: Theme.fgDim
-                    font.family: Theme.font
-                    font.pixelSize: 10
-                    font.bold: true
-                }
-                Text {
-                    anchors { right: parent.right; rightMargin: 14; top: parent.top; topMargin: 6 }
-                    text: (face.hoverSample >= 0 && face.hoverSample < face.cpuHist.length)
-                        ? (face.cpuHist[face.hoverSample].toFixed(1) + "% (-" + Math.round((face.cpuHist.length - 1 - face.hoverSample) * 1.5) + "s)")
-                        : (Math.round(face.cpu * 100) + "%")
-                    color: Theme.accent
-                    font.family: Theme.font
-                    font.pixelSize: 13
-                    font.bold: true
-                }
-
-                Text {
-                    x: 14; y: parent.height / 2 + 4
-                    text: "RAM · max " + face.memCeil + "%"
-                    color: Theme.fgDim
-                    font.family: Theme.font
-                    font.pixelSize: 10
-                    font.bold: true
-                }
-                Text {
-                    anchors { right: parent.right; rightMargin: 14; top: parent.top; topMargin: parent.height / 2 + 2 }
-                    text: (face.hoverSample >= 0 && face.hoverSample < face.memHist.length)
-                        ? (face.memHist[face.hoverSample].toFixed(1) + "%")
-                        : (Math.round(face.mem * 100) + "%")
-                    color: Theme.accent2
-                    font.family: Theme.font
-                    font.pixelSize: 13
-                    font.bold: true
-                }
-
-                MouseArea {
-                    anchors.fill: graphCanvas
-                    hoverEnabled: true
-                    onPositionChanged: mouse => {
-                        const n = face.cpuHist.length;
-                        if (n < 2) { face.hoverSample = -1; return; }
-                        face.hoverSample = Math.max(0, Math.min(n - 1, Math.round(mouse.x / width * (n - 1))));
-                        graphCanvas.requestPaint();
-                    }
-                    onExited: {
-                        face.hoverSample = -1;
-                        graphCanvas.requestPaint();
-                    }
-                }
+                MouseArea { anchors.fill: parent; hoverEnabled: true; onEntered: month.hovered = day.index; onExited: if (month.hovered === day.index) month.hovered = -1 }
             }
-
-            // ---- Four Rippling LiquidOrb Gauges (CPU, RAM, Disk, Battery) ----
-            Row {
-                Layout.alignment: Qt.AlignHCenter
-                spacing: 8
-                Repeater {
-                    model: [
-                        { val: face.cpu,  col: Theme.accent,  lbl: "CPU" },
-                        { val: face.mem,  col: Theme.accent2, lbl: "RAM" },
-                        { val: face.disk, col: face.disk > 0.9 ? Theme.warn : Theme.accentContainer, lbl: "Disk" },
-                        {
-                            val: face.hasBattery ? face.battery.percentage : 1.0,
-                            col: face.hasBattery && face.battery.percentage < 0.2 ? Theme.warn : Theme.good,
-                            lbl: face.hasBattery
-                                ? (face.battery.state === UPowerDeviceState.Charging ? "Chg" : "Bat")
-                                : "AC"
-                        }
-                    ]
-                    Item {
-                        id: orbSlot
-                        required property var modelData
-                        width: 66
-                        height: 88
-                        LiquidOrb {
-                            anchors.centerIn: parent
-                            scale: 0.82
-                            value: orbSlot.modelData.val
-                            color: orbSlot.modelData.col
-                            label: orbSlot.modelData.lbl
-                        }
-                    }
-                }
+        }
+        Column {
+            anchors.centerIn: parent
+            spacing: 0
+            RollText {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: Qt.formatDateTime(face.now, "HH:mm")
+                color: Theme.fg
+                font: Qt.font({ family: Theme.font, pixelSize: 38, bold: true })
+            }
+            Text {
+                id: dateLine
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: month.hovered >= 0
+                      ? Qt.formatDate(new Date(face.now.getFullYear(), face.now.getMonth(), month.hovered + 1), "dddd d")
+                      : Qt.formatDate(face.now, "dddd d MMMM")
+                color: month.hovered >= 0 ? Theme.accent : Theme.fgDim
+                font.family: Theme.font; font.pixelSize: 11
+            }
+            Item { width: 1; height: 6 }
+            Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: upT.implicitWidth + 16; height: 18; radius: 9
+                color: Qt.rgba(1, 1, 1, 0.06)
+                Text { id: upT; anchors.centerIn: parent; text: (face.hasBattery ? "󰁹 " + Math.round(face.battery.percentage * 100) + "%  ·  " : "") + "up " + face.uptime; color: Theme.fgDim; font.family: Theme.font; font.pixelSize: 9 }
             }
         }
     }
