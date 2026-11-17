@@ -101,12 +101,25 @@ Item {
     }
     Timer { interval: 30000; running: face.active; repeat: true; triggeredOnStart: true; onTriggered: dfProc.running = true }
 
+    Rectangle {
+        id: backdropMask
+        anchors.fill: parent
+        anchors.margins: 1
+        topLeftRadius: 0; topRightRadius: 0; bottomLeftRadius: 27; bottomRightRadius: 27
+        antialiasing: true
+        visible: false
+        layer.enabled: true
+    }
     // ---- backdrop: the cover art, blurred, as ambient light; soft glows drifting behind the dials; a faint dot grid
     Item {
         id: backdrop
         anchors.fill: parent
         z: -1
         opacity: Math.min(1, face.pop)
+        // clipped to the island's dashboard shape (square top, rounded bottom corners, radius 28 as in Island.qml),
+        // so the blurred art and glows don't show as a square shadow outside the rounded corners
+        layer.enabled: true
+        layer.effect: MultiEffect { maskEnabled: true; maskSource: backdropMask; maskThresholdMin: 0.5; maskSpreadAtMin: 1 }
         Image {
             id: bgArt
             anchors.fill: parent
