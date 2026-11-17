@@ -9,6 +9,11 @@ desktop widgets. It was built live: change something, look at a screenshot, give
 > expectations accordingly. If you're feeling brave and want to daily drive it anyway, see
 > [Daily driving it](#daily-driving-it-if-youre-feeling-brave) for the packages it quietly assumes you have.
 
+## Demo video
+https://github.com/user-attachments/assets/8c042ba7-acea-4931-8260-8ce87d44be83
+
+
+
 ## What's in it
 
 - A slanted top bar with a **dynamic island**: window titles, synced lyrics, notifications, volume and brightness
