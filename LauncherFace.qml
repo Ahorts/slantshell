@@ -10,9 +10,9 @@ import QtQuick.Shapes
 import "widgets"
 
 // App Switcher & Command Centre (Borderless center-screen overlay — NO generic rectangular container box!):
-//   - Left stage (Window Switcher Wheel): RediWM-style 360° analytic circular sector wheel (`464x464`) dedicated
+//   - Left stage (Window Switcher Wheel): RediWM-style 360° analytic circular sector wheel (`640x640`) dedicated
 //     to your open Hyprland windows (or top apps when no windows are open). Has its OWN independent selection
-//     (`wheelSel`) and unwrapped shortest-path pointer angle (`pointerDeg`), so wrapping from the last sector
+//     (`wheelSel`) and unwrapped shortest-path ring angle (`turnDeg`), so wrapping from the last sector
 //     to the first steps smoothly forward across 12 o'clock instead of spinning backwards!
 //   - Right stage (App & Command Stream): independent scrollable list (`listSel`) so scrolling through installed
 //     apps never turns the radial window wheel on the left.
@@ -27,12 +27,23 @@ PanelWindow {
     readonly property bool wanted: open && onFocusedScreen
 
     property real openProg: wanted ? 1 : 0
-    Behavior on openProg { SpringAnimation { spring: 3.8; damping: 0.44; epsilon: 0.002 } }
+    Behavior on openProg { NumberAnimation { duration: win.wanted ? 260 : 140; easing.type: Easing.OutCubic } }
+    // Opening: the hub (with the live preview) pops first, then the sectors unfold clockwise from 12 o'clock, each
+    // growing outward as the sweep passes it, with the lightning rim drawing itself round alongside.
+    property real sweep: 0
+    NumberAnimation { id: sweepIn; target: win; property: "sweep"; from: 0; to: 1; duration: 520; easing.type: Easing.OutCubic }
+    // satellite i flies out of the core as the opening sweep passes it (staggered)
+    function sectorGrow(i, n) { const a = (i / Math.max(1, n)) * 0.55; return sm(a, a + 0.45, sweep); }
 
     property real dim: wanted ? 1 : 0
     Behavior on dim { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
 
-    visible: wanted || dim > 0.004 || openProg > 0.004
+    // The surface stays mapped on its screen all the time (empty and click-through while closed), so opening is
+    // instant instead of waiting for the compositor to create a new layer surface.
+    readonly property bool busy: wanted || dim > 0.004 || openProg > 0.004
+    visible: true
+    mask: Region { item: win.busy ? fullMask : null }
+    Item { id: fullMask; anchors.fill: parent }
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "qs-desktop-launcher"
@@ -50,11 +61,14 @@ PanelWindow {
     property bool forceSearch: false
     readonly property bool searching: openWindows.length === 0 || forceSearch || input.text !== "" || mode !== "all"
     property real searchP: searching ? 1 : 0
-    Behavior on searchP { SpringAnimation { spring: 3.6; damping: 0.5; epsilon: 0.002 } }
+    Behavior on searchP { enabled: win.sceneAnim; SpringAnimation { spring: 3.6; damping: 0.5; epsilon: 0.002 } }
+    // the scene change only animates once the switcher is open (on opening it starts in the right scene at once)
+    property bool sceneAnim: false
+    Timer { id: sceneAnimOn; interval: 200; onTriggered: win.sceneAnim = true }
     function sm(a, b, x) { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); }
     onSearchingChanged: {
         activeFocusStage = searching ? "list" : "wheel";
-        if (wanted) wheelSpark.burst(1);
+
     }
     function toSwitcher() { forceSearch = false; mode = "all"; input.text = ""; }
     // Which stage Enter activates: "wheel" or "list"
@@ -70,7 +84,7 @@ PanelWindow {
         { kind: "action", title: "Wi-Fi & Bluetooth",   sub: "Open connectivity constellation",      icon: "", glyph: "󰤨", cmd: ["qs", "-p", "/home/ahorts/Documents/Projects/claude-demo/qs-desktop", "ipc", "call", "connectivity", "toggle"] },
         { kind: "action", title: "Toggle Hard Corners", sub: "Switch square vs rounded windows",     icon: "", glyph: "󰙀", cmd: ["qs", "-p", "/home/ahorts/Documents/Projects/claude-demo/qs-desktop", "ipc", "call", "sharp", "toggle"] },
         { kind: "action", title: "Shard Colour Wipe",   sub: "Trigger diagonal palette wipe",        icon: "", glyph: "󰔎", cmd: ["qs", "-p", "/home/ahorts/Documents/Projects/claude-demo/qs-desktop", "ipc", "call", "wipe", "test"] },
-        { kind: "action", title: "Lock Session",        sub: "Lock screen via loginctl",             icon: "", glyph: "󰌾", cmd: ["loginctl", "lock-session"] },
+        { kind: "action", title: "Lock Session",        sub: "Lock the screen",                      icon: "", glyph: "󰌾", cmd: ["qs", "-p", Quickshell.shellPath("shell.qml"), "ipc", "call", "lock", "lock"] },
         { kind: "action", title: "Reload Hyprland",     sub: "Run hyprctl reload",                   icon: "", glyph: "󰑓", cmd: ["hyprctl", "reload"] }
     ]
 
@@ -132,7 +146,8 @@ PanelWindow {
 
     // Right-hand scrollable stream items (Applications, Windows, or Actions)
     readonly property var listItems: {
-        if (!wanted) return [];
+        // built only when the search scene is used (building hundreds of app rows on open made it lag)
+        if (!wanted || (!searching && openWindows.length > 0)) return [];
         const q = input.text.trim().toLowerCase();
 
         if (win.mode === "win") {
@@ -189,33 +204,23 @@ PanelWindow {
     readonly property var currentListItem: (listSel >= 0 && listSel < listItems.length) ? listItems[listSel] : null
     readonly property var activeItem: activeFocusStage === "wheel" && currentWheelItem ? currentWheelItem : (currentListItem ?? currentWheelItem)
 
-    // Unwrapped shortest-path pointer angle (degrees, 0 = 12 o'clock, clockwise):
-    // Going from the last sector (e.g. 315°) to sector 0 (0°) adds +45° (to 360°) instead of animating backwards to 0°!
-    property real pointerDeg: 0
-    Behavior on pointerDeg { SpringAnimation { spring: 5.0; damping: 0.54; epsilon: 0.08 } }
-
+    // The ring turns so the selected window always comes round to 12 o'clock. `turnDeg` is unwrapped (shortest way
+    // round, so stepping from the last window to the first keeps going forward) and sprung.
+    property real turnDeg: 0
+    Behavior on turnDeg { SpringAnimation { spring: 3.6; damping: 0.42; epsilon: 0.05 } }
     function updatePointerAngle() {
         if (wheelCount <= 0) return;
         const targetMod = (wheelSel / wheelCount) * 360;
-        const curMod = ((pointerDeg % 360) + 360) % 360;
+        const curMod = ((turnDeg % 360) + 360) % 360;
         let diff = targetMod - curMod;
         if (diff > 180) diff -= 360;
         else if (diff < -180) diff += 360;
-        pointerDeg = pointerDeg + diff;
+        turnDeg = turnDeg + diff;
     }
-
-    property real selExtrude: 1
-    onWheelSelChanged: {
-        updatePointerAngle();
-        if (wanted) wheelSpark.burst(0.55);
-        selExtrude = 0.28;
-        extrudeRecover.restart();
-        wheelCanvas.requestPaint();
-    }
+    onWheelSelChanged: updatePointerAngle()
     onWheelCountChanged: {
         if (wheelSel >= wheelItems.length) wheelSel = Math.max(0, wheelItems.length - 1);
         updatePointerAngle();
-        wheelCanvas.requestPaint();
     }
     onListSelChanged: {
         if (listSel >= 0 && listSel < listView.count) {
@@ -225,12 +230,6 @@ PanelWindow {
     onListItemsChanged: {
         if (listSel >= listItems.length) listSel = Math.max(0, listItems.length - 1);
     }
-
-    Timer { id: extrudeRecover; interval: 16; onTriggered: win.selExtrude = 1 }
-    Behavior on selExtrude { SpringAnimation { spring: 5.2; damping: 0.46; epsilon: 0.005 } }
-    onSelExtrudeChanged: wheelCanvas.requestPaint()
-    onOpenProgChanged: wheelCanvas.requestPaint()
-    onPointerDegChanged: wheelCanvas.requestPaint()
 
     function stepWheel(delta) {
         const n = wheelItems.length;
@@ -297,9 +296,13 @@ PanelWindow {
             mode = "all";
             input.text = "";
             forceSearch = false;
+            sweep = 0;
+            sweepIn.start();
+            sceneAnim = false;
+            sceneAnimOn.restart();
             wheelSel = 0;
             listSel = 0;
-            pointerDeg = 0;
+            turnDeg = 0;
             activeFocusStage = openWindows.length > 0 ? "wheel" : "list";
             Qt.callLater(() => input.forceActiveFocus());
         }
@@ -323,11 +326,10 @@ PanelWindow {
     // =========================================================================
     Item {
         id: centerStage
-        width: 960
-        height: 556
+        width: 1040
+        height: 700
         anchors.centerIn: parent
-        scale: 0.88 + 0.12 * win.openProg
-        opacity: Math.min(1, win.openProg * 1.4)
+        opacity: win.openProg
 
         // ---- TOP FLOATING PILL SEARCH BAR & MODE PILLS ----
         RowLayout {
@@ -530,258 +532,157 @@ PanelWindow {
             anchors.fill: parent
 
             // =================================================================
-            // LEFT STAGE: RediWM 360° Circular Window Switcher (`464 x 464`)
+            // LEFT STAGE: RediWM 360° Circular Window Switcher (`640 x 640`)
+            // =================================================================
+            // =================================================================
+            // WINDOW SWITCHER: an orbit of windows round a live preview (same family as the Wi-Fi/BT screen).
+            // Each open window is a pill (app icon, app name, workspace) on an elliptical ring, joined to the core by
+            // a thin beam; the ring turns so the selection comes round to the top, where its pill lifts and lights
+            // and its beam carries a travelling pulse. The core is a large live picture of the selected window.
+            // Opening: the core pops, then the pills fly out of it one after another.
             // =================================================================
             Item {
                 id: wheelStage
-                width: 464
-                height: 464
-                // switcher: centre stage, a little larger. search: spins, shrinks and flies into the lens
+                width: 960
+                height: 640
+                // search: the whole orbit spins, shrinks and flies into the search bar's lens
                 readonly property real fly: win.sm(0.0, 0.75, win.searchP)
                 readonly property real homeX: (mainStage.width - width) / 2
-                readonly property real homeY: (mainStage.height - height) / 2 + 10
+                readonly property real homeY: (mainStage.height - height) / 2 - 12
                 readonly property real lensX: 26 - width / 2
                 readonly property real lensY: 26 - height / 2
                 x: homeX + (lensX - homeX) * fly
-                y: homeY + (lensY - homeY) * fly - Math.sin(Math.PI * fly) * 90     // arcs up on the way
-                scale: (1.12 - 1.07 * fly)
+                y: homeY + (lensY - homeY) * fly - Math.sin(Math.PI * fly) * 90
+                scale: (1.0 - 0.95 * fly)
                 rotation: -300 * fly
                 opacity: 1 - win.sm(0.55, 0.85, win.searchP)
                 visible: opacity > 0.01
                 enabled: !win.searching
 
                 readonly property real cx: width / 2
-                readonly property real cy: height / 2
-                readonly property real hubR: 74
-                readonly property real innerR: 90
-                readonly property real baseOuterR: 188
-                readonly property real selExtraR: 24
+                readonly property real cy: height / 2 - 10
+                readonly property real coreW: 400            // the preview core (16:10-ish, rounded)
+                readonly property real coreH: 250
+                readonly property real rx: 400               // orbit
+                readonly property real ry: 262
+                readonly property int n: win.wheelItems.length
 
-                WheelHandler {
-                    onWheel: event => win.stepWheel(event.angleDelta.y > 0 ? -1 : 1)
+                // where satellite i sits (selected one at 12 o'clock), scaled by how far it has flown out
+                function satPos(i, g) {
+                    const a = (i * 360 / Math.max(1, n) - win.turnDeg - 90) * Math.PI / 180;
+                    return { x: cx + Math.cos(a) * rx * g, y: cy + Math.sin(a) * ry * g, a: a };
                 }
 
-                Canvas {
-                    id: wheelCanvas
-                    anchors.fill: parent
-                    antialiasing: true
-
-                    onPaint: {
-                        const ctx = getContext("2d");
-                        ctx.reset();
-                        const cx = wheelStage.cx, cy = wheelStage.cy;
-                        const n = win.wheelItems.length;
-                        const grow = Math.max(0.01, Math.min(1.15, win.openProg));
-
-                        // Soft radial shadow/halo under the wheel
-                        const amb = ctx.createRadialGradient(cx, cy, wheelStage.hubR * 0.5, cx, cy, 226);
-                        amb.addColorStop(0.0, Qt.rgba(0, 0, 0, 0.55));
-                        amb.addColorStop(0.75, Qt.rgba(0, 0, 0, 0.28));
-                        amb.addColorStop(1.0, "transparent");
-                        ctx.fillStyle = amb;
-                        ctx.beginPath();
-                        ctx.arc(cx, cy, 226, 0, Math.PI * 2);
-                        ctx.fill();
-
-                        // Outer dark disc backing
-                        ctx.beginPath();
-                        ctx.arc(cx, cy, wheelStage.baseOuterR * grow + 8, 0, Math.PI * 2);
-                        ctx.fillStyle = Qt.rgba(Theme.bg.r, Theme.bg.g, Theme.bg.b, 0.86);
-                        ctx.fill();
-
-                        if (n > 0) {
-                            const slotSpan = (Math.PI * 2) / n;
-                            const gap = n > 1 ? Math.min(0.05, slotSpan * 0.10) : 0;
-
-                            for (let i = 0; i < n; i++) {
-                                const it = win.wheelItems[i];
-                                const isSel = (i === win.wheelSel);
-                                const midA = -Math.PI / 2 + i * slotSpan;
-                                const a0 = midA - (slotSpan - gap) / 2;
-                                const a1 = midA + (slotSpan - gap) / 2;
-
-                                const ext = isSel ? wheelStage.selExtraR * win.selExtrude : 0;
-                                const r0 = wheelStage.innerR;
-                                const r1 = r0 + (wheelStage.baseOuterR + ext - r0) * grow;
-
-                                // Stacked sub-arcs behind if window group has multiple instances
-                                const stacks = Math.min(3, it.stackCount || 1);
-                                for (let d = stacks - 1; d >= 1; d--) {
-                                    const sr0 = r1 + d * 6;
-                                    const sr1 = r1 + d * 6 + 4;
-                                    ctx.beginPath();
-                                    ctx.arc(cx, cy, sr1, a0 + 0.02, a1 - 0.02, false);
-                                    ctx.arc(cx, cy, sr0, a1 - 0.02, a0 + 0.02, true);
-                                    ctx.closePath();
-                                    ctx.fillStyle = Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, isSel ? 0.35 : 0.15);
-                                    ctx.fill();
-                                }
-
-                                const sGrad = ctx.createRadialGradient(cx, cy, r0, cx, cy, r1);
-                                if (isSel) {
-                                    sGrad.addColorStop(0.0, Qt.rgba(Theme.surface.r, Theme.surface.g, Theme.surface.b, 0.96));
-                                    sGrad.addColorStop(0.72, Qt.rgba(Theme.accentContainer.r, Theme.accentContainer.g, Theme.accentContainer.b, 0.78));
-                                    sGrad.addColorStop(1.0, Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.48));
-                                } else {
-                                    sGrad.addColorStop(0.0, Qt.rgba(Theme.bgAlt.r, Theme.bgAlt.g, Theme.bgAlt.b, 0.88));
-                                    sGrad.addColorStop(1.0, Qt.rgba(Theme.surface.r, Theme.surface.g, Theme.surface.b, 0.78));
-                                }
-
-                                ctx.beginPath();
-                                ctx.arc(cx, cy, r1, a0, a1, false);
-                                ctx.arc(cx, cy, r0, a1, a0, true);
-                                ctx.closePath();
-                                ctx.fillStyle = sGrad;
-                                ctx.fill();
-
-                                ctx.lineWidth = isSel ? 1.8 : 1.0;
-                                ctx.strokeStyle = isSel ? Theme.accent : Qt.rgba(1, 1, 1, 0.11);
-                                ctx.stroke();
-
-                                if (isSel) {
-                                    ctx.beginPath();
-                                    ctx.arc(cx, cy, r1 + 2, a0 + 0.01, a1 - 0.01, false);
-                                    ctx.strokeStyle = Theme.accent;
-                                    ctx.lineWidth = 5.0;
-                                    ctx.lineCap = "round";
-                                    ctx.stroke();
-                                } else if (it.kind === "window") {
-                                    ctx.beginPath();
-                                    ctx.arc(cx, cy, r1, a0 + 0.04, a1 - 0.04, false);
-                                    ctx.strokeStyle = Qt.rgba(Theme.accent2.r, Theme.accent2.g, Theme.accent2.b, 0.65);
-                                    ctx.lineWidth = 2.4;
-                                    ctx.lineCap = "round";
-                                    ctx.stroke();
-                                }
-                            }
+                // scroll turns the ring: one step per notch (touchpad deltas are added up to a notch's worth)
+                property real wheelAcc: 0
+                WheelHandler {
+                    onWheel: event => {
+                        const d = event.angleDelta.y !== 0 ? event.angleDelta.y : -event.angleDelta.x;
+                        wheelStage.wheelAcc += d;
+                        while (Math.abs(wheelStage.wheelAcc) >= 120) {
+                            const dir = wheelStage.wheelAcc > 0 ? -1 : 1;
+                            win.stepWheel(dir);
+                            wheelStage.wheelAcc += dir * 120;
                         }
-
-                        // Central Hub Circle + Unwrapped Shortest-Path Directional Pointer
-                        ctx.save();
-                        ctx.translate(cx, cy);
-
-                        ctx.beginPath();
-                        ctx.arc(0, 0, wheelStage.hubR, 0, Math.PI * 2);
-                        ctx.fillStyle = Qt.rgba(Theme.bg.r, Theme.bg.g, Theme.bg.b, 0.96);
-                        ctx.fill();
-                        ctx.lineWidth = 1.8;
-                        ctx.strokeStyle = win.activeFocusStage === "wheel" ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.5) : Qt.rgba(1, 1, 1, 0.14);
-                        ctx.stroke();
-
-                        if (n > 0) {
-                            const pRad = (win.pointerDeg - 90) * Math.PI / 180;
-                            ctx.save();
-                            ctx.rotate(pRad);
-
-                            ctx.beginPath();
-                            ctx.arc(0, 0, wheelStage.hubR, -0.34, 0.34);
-                            ctx.strokeStyle = Theme.accent;
-                            ctx.lineWidth = 3.5;
-                            ctx.lineCap = "round";
-                            ctx.stroke();
-
-                            ctx.beginPath();
-                            ctx.moveTo(wheelStage.hubR + 10, 0);
-                            ctx.lineTo(wheelStage.hubR - 2, -6.5);
-                            ctx.lineTo(wheelStage.hubR - 2, 6.5);
-                            ctx.closePath();
-                            ctx.fillStyle = Theme.accent;
-                            ctx.fill();
-                            ctx.restore();
-                        }
-
-                        ctx.restore();
                     }
                 }
 
-                // Sector Icons & Labels
+                // faint orbit rings
+                Repeater {
+                    model: 2
+                    Rectangle {
+                        required property int index
+                        readonly property real k: index === 0 ? 1 : 1.12
+                        x: wheelStage.cx - wheelStage.rx * k * win.sweep; y: wheelStage.cy - wheelStage.ry * k * win.sweep
+                        width: 2 * wheelStage.rx * k * win.sweep; height: 2 * wheelStage.ry * k * win.sweep
+                        radius: height / 2
+                        color: "transparent"
+                        border.color: Qt.rgba(Theme.fg.r, Theme.fg.g, Theme.fg.b, index === 0 ? 0.08 : 0.04)
+                        border.width: 1
+                        antialiasing: true
+                        visible: win.sweep > 0.02
+                    }
+                }
+
+                // beams: core edge -> each satellite (the selected one brighter)
                 Repeater {
                     model: win.wheelItems
-
-                    Item {
-                        id: secItem
-                        required property var modelData
+                    Shape {
+                        id: beam
                         required property int index
-                        readonly property bool isSel: index === win.wheelSel
-                        readonly property real slotSpan: (Math.PI * 2) / win.wheelCount
-                        readonly property real midA: -Math.PI / 2 + index * slotSpan
-                        readonly property real midR: (wheelStage.innerR + wheelStage.baseOuterR + (isSel ? wheelStage.selExtraR * 0.55 : 0)) * 0.5 * Math.min(1, win.openProg)
-
-                        width: 82; height: 58
-                        x: wheelStage.cx + Math.cos(midA) * midR - width / 2
-                        y: wheelStage.cy + Math.sin(midA) * midR - height / 2
-                        scale: isSel ? 1.14 : 0.96
-                        Behavior on scale { SpringAnimation { spring: 5.0; damping: 0.48 } }
-
-                        Column {
-                            anchors.centerIn: parent
-                            spacing: 4
-
-                            Item {
-                                width: 34; height: 34
-                                anchors.horizontalCenter: parent.horizontalCenter
-
-                                IconImage {
-                                    anchors.fill: parent
-                                    visible: secItem.modelData.kind !== "action"
-                                    implicitSize: 34
-                                    source: secItem.modelData.kind !== "action"
-                                        ? Quickshell.iconPath(secItem.modelData.icon, "application-x-executable")
-                                        : ""
-                                }
-                                Text {
-                                    anchors.centerIn: parent
-                                    visible: secItem.modelData.kind === "action"
-                                    text: secItem.modelData.glyph || "󰀻"
-                                    color: secItem.isSel ? Theme.accent : Theme.fg
-                                    font.family: Theme.font
-                                    font.pixelSize: 24
-                                }
-                            }
-
-                            Text {
-                                width: 78
-                                horizontalAlignment: Text.AlignHCenter
-                                text: (secItem.modelData.kind === "window" ? secItem.modelData.app : secItem.modelData.title)
-                                      + (secItem.modelData.ws ? "  ·  " + secItem.modelData.ws : "")
-                                color: secItem.isSel ? Theme.fg : Theme.fgDim
-                                elide: Text.ElideRight
-                                font.family: Theme.font
-                                font.pixelSize: 10
-                                font.bold: secItem.isSel
-                            }
+                        readonly property real g: win.sectorGrow(index, wheelStage.n)
+                        readonly property var p: wheelStage.satPos(index, g)
+                        readonly property bool sel: index === win.wheelSel
+                        anchors.fill: parent
+                        visible: g > 0.02
+                        ShapePath {
+                            strokeColor: beam.sel ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.85)
+                                                  : Qt.rgba(Theme.fg.r, Theme.fg.g, Theme.fg.b, 0.13)
+                            strokeWidth: beam.sel ? 1.8 : 1
+                            fillColor: "transparent"
+                            startX: wheelStage.cx + Math.cos(beam.p.a) * wheelStage.coreW * 0.42 * beam.g
+                            startY: wheelStage.cy + Math.sin(beam.p.a) * wheelStage.coreH * 0.42 * beam.g
+                            PathLine { x: beam.p.x; y: beam.p.y }
                         }
                     }
                 }
-
-                // a faint current round the rim; it flares as the selection moves and when the scene changes
-                EdgeSpark {
-                    id: wheelSpark
-                    anchors.fill: parent
-                    ring: true
-                    cx: wheelStage.cx; cy: wheelStage.cy
-                    r: wheelStage.baseOuterR + 9
-                    intensity: 0.18
-                    running: win.wanted
+                // a pulse running along the selected beam, out from the core
+                Rectangle {
+                    id: pulse
+                    readonly property var p: wheelStage.satPos(win.wheelSel, win.sectorGrow(win.wheelSel, wheelStage.n))
+                    readonly property real sx: wheelStage.cx + Math.cos(p.a) * wheelStage.coreW * 0.42
+                    readonly property real sy: wheelStage.cy + Math.sin(p.a) * wheelStage.coreH * 0.42
+                    property real t: 0
+                    NumberAnimation on t { from: 0; to: 1; duration: 1100; loops: Animation.Infinite; running: win.wanted && !win.searching }
+                    width: 8; height: 8; radius: 4
+                    x: sx + (p.x - sx) * t - 4
+                    y: sy + (p.y - sy) * t - 4
+                    color: Theme.accent
+                    opacity: Math.sin(Math.PI * t) * win.sweep
+                    visible: wheelStage.n > 0
+                    Rectangle { anchors.centerIn: parent; width: 22; height: 22; radius: 11; z: -1; color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.25) }
                 }
 
-                // Central hub: a live picture of the selected window (circle-cropped), its app icon pinned at the
-                // bottom edge. Apps (no window yet) show their icon instead.
+                // ---- the core: a large live picture of the selected window ----
                 Item {
                     id: hub
                     readonly property var item: win.currentWheelItem
                     readonly property bool isWin: item !== null && item.kind === "window"
-                    width: wheelStage.hubR * 2 - 6
-                    height: width
+                    width: wheelStage.coreW
+                    height: wheelStage.coreH
                     x: wheelStage.cx - width / 2
                     y: wheelStage.cy - height / 2
-                    scale: Math.min(1, win.openProg)
+                    z: 5
+                    property real pop: win.wanted ? 1 : 0
+                    Behavior on pop { SpringAnimation { spring: 4.2; damping: 0.42; epsilon: 0.002 } }
+                    scale: Math.max(0, pop) * swapK
+                    // a little zoom-blink when the selection changes
+                    property real swapK: 1
+                    SequentialAnimation {
+                        id: swapBlink
+                        NumberAnimation { target: hub; property: "swapK"; to: 0.94; duration: 90; easing.type: Easing.OutCubic }
+                        NumberAnimation { target: hub; property: "swapK"; to: 1; duration: 320; easing.type: Easing.OutBack; easing.overshoot: 2 }
+                    }
+                    Connections { target: win; function onWheelSelChanged() { if (win.wanted) swapBlink.restart(); } }
 
-                    // the capture, masked to a circle
-                    Item {
-                        id: previewBox
+                    // halo
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: parent.width + 36; height: parent.height + 36; radius: 34
+                        color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.08)
+                    }
+                    Rectangle {
+                        id: coreFrame
                         anchors.fill: parent
-                        visible: hub.isWin
+                        radius: 22
+                        color: Qt.rgba(Theme.bg.r, Theme.bg.g, Theme.bg.b, 0.92)
+                        border.color: Theme.accent
+                        border.width: 2
+                        antialiasing: true
+                    }
+                    Item {
+                        anchors { fill: parent; margins: 6 }
+                        visible: hub.isWin && preview.hasContent
                         layer.enabled: true
                         layer.effect: MultiEffect {
                             maskEnabled: true
@@ -792,112 +693,163 @@ PanelWindow {
                         ScreencopyView {
                             id: preview
                             anchors.centerIn: parent
-                            // cover the circle, keeping the window's aspect ratio
-                            readonly property real ar: sourceSize.height > 0 ? sourceSize.width / sourceSize.height : 16 / 9
-                            width: ar >= 1 ? parent.height * ar : parent.width
-                            height: ar >= 1 ? parent.height : parent.width / ar
+                            // fit the whole window in the frame
+                            readonly property real ar: sourceSize.height > 0 ? sourceSize.width / sourceSize.height : 16 / 10
+                            readonly property real boxAr: parent.width / parent.height
+                            width: ar >= boxAr ? parent.width : parent.height * ar
+                            height: ar >= boxAr ? parent.width / ar : parent.height
                             captureSource: hub.isWin && win.wanted ? hub.item.ref : null
                             live: win.wanted
-                            // a soft swap: each new window fades/zooms in
                             onCaptureSourceChanged: swapIn.restart()
-                            NumberAnimation { id: swapIn; target: preview; property: "opacity"; from: 0.15; to: 1; duration: 220; easing.type: Easing.OutCubic }
-                        }
-                        Rectangle {        // darken the bottom so the icon badge reads
-                            anchors.fill: parent
-                            gradient: Gradient {
-                                GradientStop { position: 0.55; color: "transparent" }
-                                GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.55) }
-                            }
+                            NumberAnimation { id: swapIn; target: preview; property: "opacity"; from: 0.2; to: 1; duration: 220; easing.type: Easing.OutCubic }
                         }
                     }
                     Rectangle {
                         id: hubMask
-                        anchors.fill: parent
-                        radius: width / 2
+                        anchors { fill: parent; margins: 6 }
+                        radius: 17
                         visible: false
                         layer.enabled: true
                     }
-                    // ring around the preview
+                    // app icon badge on the frame's bottom edge
                     Rectangle {
-                        anchors.fill: parent
-                        radius: width / 2
-                        color: "transparent"
-                        border.color: win.activeFocusStage === "wheel" ? Theme.accent : Qt.rgba(1, 1, 1, 0.18)
-                        border.width: 2
-                        antialiasing: true
-                    }
-                    IconImage {
-                        readonly property real sz: hub.isWin ? 28 : 46
-                        width: sz; height: sz
-                        implicitSize: sz
                         anchors.horizontalCenter: parent.horizontalCenter
-                        y: hub.isWin ? parent.height - sz * 0.75 : (parent.height - sz) / 2
-                        visible: hub.item !== null && hub.item.kind !== "action"
+                        y: parent.height - 22
+                        width: 44; height: 44; radius: 22
+                        color: Theme.bg
+                        border.color: Theme.accent
+                        border.width: 2
+                        visible: hub.item !== null
+                        IconImage {
+                            anchors.centerIn: parent
+                            implicitSize: 28
+                            visible: hub.item !== null && hub.item.kind !== "action"
+                            source: hub.item && hub.item.kind !== "action" ? Quickshell.iconPath(hub.item.icon, "application-x-executable") : ""
+                        }
+                    }
+                    // no live picture (a window on a hidden workspace, or an app): a big icon instead
+                    IconImage {
+                        anchors.centerIn: parent
+                        anchors.verticalCenterOffset: -10
+                        implicitSize: 96
+                        visible: hub.item !== null && hub.item.kind !== "action" && !(hub.isWin && preview.hasContent)
                         source: hub.item && hub.item.kind !== "action" ? Quickshell.iconPath(hub.item.icon, "application-x-executable") : ""
                     }
                     Text {
                         anchors.centerIn: parent
-                        visible: !hub.item || hub.item.kind === "action"
-                        text: hub.item ? (hub.item.glyph || "󰀻") : "󰍉"
-                        color: Theme.accent
+                        visible: !hub.isWin
+                        text: hub.item ? "" : "No windows"
+                        color: Theme.fgDim
                         font.family: Theme.font
-                        font.pixelSize: 30
+                        font.pixelSize: 14
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: if (win.currentWheelItem) win.activate(win.currentWheelItem)
                     }
                 }
 
-                // caption under the wheel: the selected window's full title and where it lives
-                Column {
+                // ---- the satellites ----
+                Repeater {
+                    model: win.wheelItems
+                    Item {
+                        id: sat
+                        required property var modelData
+                        required property int index
+                        readonly property bool isSel: index === win.wheelSel
+                        readonly property real g: win.sectorGrow(index, wheelStage.n)
+                        readonly property var p: wheelStage.satPos(index, g)
+                        width: 188; height: 54
+                        x: p.x - width / 2
+                        y: p.y - height / 2
+                        z: isSel ? 8 : 6
+                        opacity: Math.min(1, g * 1.5)
+                        property real lift: isSel ? 1 : 0
+                        Behavior on lift { SpringAnimation { spring: 5; damping: 0.5; epsilon: 0.005 } }
+                        scale: Math.max(0.01, g) * (1 + 0.14 * lift + (satMouse.containsMouse && !isSel ? 0.05 : 0))
+
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: 27
+                            color: sat.isSel ? Theme.accent : Qt.rgba(Theme.bg.r, Theme.bg.g, Theme.bg.b, 0.9)
+                            border.color: sat.isSel ? Theme.accent : Qt.rgba(1, 1, 1, 0.14)
+                            border.width: 1
+                            antialiasing: true
+                            Behavior on color { ColorAnimation { duration: 180 } }
+                        }
+                        Row {
+                            anchors { left: parent.left; leftMargin: 12; verticalCenter: parent.verticalCenter }
+                            spacing: 10
+                            Rectangle {
+                                width: 34; height: 34; radius: 17
+                                anchors.verticalCenter: parent.verticalCenter
+                                color: sat.isSel ? Qt.rgba(0, 0, 0, 0.18) : Qt.rgba(1, 1, 1, 0.06)
+                                IconImage {
+                                    anchors.centerIn: parent
+                                    implicitSize: 22
+                                    source: sat.modelData.kind !== "action" ? Quickshell.iconPath(sat.modelData.icon, "application-x-executable") : ""
+                                }
+                            }
+                            Column {
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 0
+                                Text {
+                                    width: 120
+                                    text: sat.modelData.kind === "window" ? sat.modelData.app : sat.modelData.title
+                                    color: sat.isSel ? Theme.accentText : Theme.fg
+                                    elide: Text.ElideRight
+                                    font.family: Theme.font
+                                    font.pixelSize: 13
+                                    font.bold: true
+                                }
+                                Text {
+                                    width: 120
+                                    text: sat.modelData.ws ? "workspace " + sat.modelData.ws : (sat.modelData.kind === "window" ? "window" : "app")
+                                    color: sat.isSel ? Qt.rgba(Theme.accentText.r, Theme.accentText.g, Theme.accentText.b, 0.75) : Theme.fgDim
+                                    elide: Text.ElideRight
+                                    font.family: Theme.font
+                                    font.pixelSize: 10
+                                }
+                            }
+                        }
+                        MouseArea {
+                            id: satMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            // no hover-select (the ring would turn under the pointer forever): click picks it,
+                            // a click on the picked one focuses it
+                            onClicked: {
+                                win.activeFocusStage = "wheel";
+                                if (sat.isSel) win.activate(sat.modelData);
+                                else win.wheelSel = sat.index;
+                            }
+                        }
+                    }
+                }
+
+                // caption: the selected window's full title, under the core
+                Text {
+                    id: capTitle
                     anchors.horizontalCenter: parent.horizontalCenter
-                    y: wheelStage.cy + wheelStage.baseOuterR + wheelStage.selExtraR + 2
-                    opacity: Math.min(1, win.openProg)
-                    spacing: 0
-                    Text {
-                        id: capTitle
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        width: Math.min(implicitWidth, 440)
-                        horizontalAlignment: Text.AlignHCenter
-                        text: win.currentWheelItem ? win.currentWheelItem.title : "No windows"
-                        color: Theme.fg
-                        elide: Text.ElideMiddle
-                        font.family: Theme.font
-                        font.pixelSize: 13
-                        font.bold: true
-                        // rises into place when the selection changes (same motion as the bar's lyrics)
-                        onTextChanged: capIn.restart()
-                        ParallelAnimation {
-                            id: capIn
-                            NumberAnimation { target: capTitle; property: "opacity"; from: 0; to: 1; duration: 200 }
-                            NumberAnimation { target: capShift; property: "y"; from: 8; to: 0; duration: 220; easing.type: Easing.OutCubic }
-                        }
-                        transform: Translate { id: capShift }
+                    y: wheelStage.cy + wheelStage.coreH / 2 + 34
+                    z: 7
+                    width: Math.min(implicitWidth, 520)
+                    horizontalAlignment: Text.AlignHCenter
+                    opacity: win.sweep
+                    text: win.currentWheelItem ? win.currentWheelItem.title : ""
+                    color: Theme.fg
+                    elide: Text.ElideMiddle
+                    font.family: Theme.font
+                    font.pixelSize: 13
+                    font.bold: true
+                    onTextChanged: capIn.restart()
+                    ParallelAnimation {
+                        id: capIn
+                        NumberAnimation { target: capShift; property: "y"; from: 8; to: 0; duration: 220; easing.type: Easing.OutCubic }
                     }
-                }
-
-                // Polar Mouse Hit-Testing for the 360° Sector Wheel & Hub
-                MouseArea {
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onPositionChanged: mouse => {
-                        const dx = mouse.x - wheelStage.cx, dy = mouse.y - wheelStage.cy;
-                        const r = Math.hypot(dx, dy);
-                        if (r < wheelStage.innerR || r > wheelStage.baseOuterR + wheelStage.selExtraR + 14) return;
-                        const n = win.wheelItems.length;
-                        if (n === 0) return;
-                        const slotSpan = (Math.PI * 2) / n;
-                        let ang = Math.atan2(dy, dx) + Math.PI / 2 + slotSpan / 2;
-                        ang = ((ang % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-                        const idx = Math.floor(ang / slotSpan) % n;
-                        win.activeFocusStage = "wheel";
-                        if (win.wheelSel !== idx) win.wheelSel = idx;
-                    }
-                    onClicked: mouse => {
-                        const dx = mouse.x - wheelStage.cx, dy = mouse.y - wheelStage.cy;
-                        const r = Math.hypot(dx, dy);
-                        if (r <= wheelStage.baseOuterR + wheelStage.selExtraR + 14 && win.currentWheelItem) {
-                            win.activate(win.currentWheelItem);
-                        }
-                    }
+                    transform: Translate { id: capShift }
                 }
             }
 
@@ -953,6 +905,15 @@ PanelWindow {
                             PathLine { x: 4; y: 58 }
                             PathLine { x: 14; y: 0 }
                         }
+                    }
+                    EdgeSpark {      // the highlight's border is lightning
+                        anchors.fill: parent
+                        visible: Theme.lightning && win.searching
+                        points: [[14, 1], [listView.width - 5, 1], [listView.width - 15, 57], [5, 57]]
+                        closed: true
+                        intensity: 0.28
+                        step: 5
+                        running: win.wanted
                     }
                     Rectangle {      // accent tab on the left edge
                         x: 4; y: 0; width: 4; height: 58
