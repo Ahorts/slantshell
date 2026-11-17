@@ -35,8 +35,9 @@ PanelWindow {
     WlrLayershell.namespace: "qs-desktop-wheel"
     exclusionMode: ExclusionMode.Ignore
     anchors { left: true; bottom: true }
-    implicitWidth: 380
-    implicitHeight: 380
+    // room for the dial (300) plus the tag that sits outside it at the hovered sector's angle
+    implicitWidth: 520
+    implicitHeight: 520
     color: "transparent"
 
     // closed: a 4px corner; open: the quarter disc (an ellipse centred on the corner)
