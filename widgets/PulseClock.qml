@@ -1,9 +1,11 @@
 import Quickshell
 import QtQuick
+import QtQuick.Shapes
 import ".."
 
 // "Pulse clock": a clock inside a ring. The accent arc sweeps once a minute (seconds), and while
 // music plays the ring grows audio-reactive bars (live from cava) in the wallpaper palette.
+// Drawn with vector shapes and plain items (no per-frame canvas painting), so it stays cheap.
 Item {
     id: root
 
@@ -15,6 +17,9 @@ Item {
     // Smoothed per-band levels (0..1), 16 bands mirrored around the ring.
     property var levels: new Array(16).fill(0)
     property real peak: 0
+
+    readonly property real ringR: 126
+    readonly property int barCount: 32
 
     readonly property string greeting: {
         const h = clock.date.getHours();
@@ -30,72 +35,71 @@ Item {
 
     // Animate while music plays, and until the bars have settled after it stops.
     Timer {
-        interval: 33
-        running: Audio.playing || root.peak > 0.01
+        interval: 50                       // 20 fps is plenty for a background ring
+        running: (Audio.playing || root.peak > 0.01) && root.visible
         repeat: true
         onTriggered: {
             const next = [];
             let p = 0;
             for (let i = 0; i < 16; i++) {
                 const target = (Audio.bars[i] ?? 0) / 100;
-                const v = root.levels[i] + (target - root.levels[i]) * 0.45;
+                const v = root.levels[i] + (target - root.levels[i]) * 0.5;
                 next.push(v);
                 p = Math.max(p, v);
             }
             root.levels = next;
             root.peak = p;
-            canvas.requestPaint();
         }
     }
 
-    Connections { target: clock; function onDateChanged() { canvas.requestPaint(); } }
-    Connections { target: Theme; function onAccentChanged() { canvas.requestPaint(); } function onAccent2Changed() { canvas.requestPaint(); } function onAccentContainerChanged() { canvas.requestPaint(); } }
-
-    Canvas {
-        id: canvas
+    // ---- the ring and the seconds sweep ----
+    Shape {
         anchors.fill: parent
-        antialiasing: true
+        layer.enabled: true
+        layer.samples: 4
 
-        onPaint: {
-            const ctx = getContext("2d");
-            ctx.reset();
-            const cx = width / 2, cy = height / 2, R = 126;
-            const c1 = Theme.accent, c2 = Theme.accent2, cc = Theme.accentContainer;
-
-            // Faint base ring.
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = Qt.rgba(cc.r, cc.g, cc.b, 0.28);
-            ctx.beginPath();
-            ctx.arc(cx, cy, R, 0, Math.PI * 2);
-            ctx.stroke();
-
-            // Seconds sweep.
-            const sec = clock.date.getSeconds();
-            const a0 = -Math.PI / 2;
-            ctx.lineCap = "round";
-            ctx.lineWidth = 4;
-            ctx.strokeStyle = c1;
-            ctx.beginPath();
-            ctx.arc(cx, cy, R, a0, a0 + Math.PI * 2 * (sec / 60) + 0.001);
-            ctx.stroke();
-
-            // Audio bars around the ring (idle: little dots).
-            const n = 32;
-            ctx.lineWidth = 5;
-            for (let i = 0; i < n; i++) {
-                const band = i < 16 ? i : 31 - i;           // mirror: bass at the top on both sides
-                const v = root.levels[band];
-                const ang = a0 + (i + 0.5) / n * Math.PI * 2;
-                const r0 = R + 14;
-                const r1 = r0 + 1 + v * 52;
-                ctx.strokeStyle = root.mix(c1, c2, i < 16 ? i / 15 : (31 - i) / 15);
-                ctx.globalAlpha = 0.35 + 0.65 * Math.min(1, v * 1.6);
-                ctx.beginPath();
-                ctx.moveTo(cx + Math.cos(ang) * r0, cy + Math.sin(ang) * r0);
-                ctx.lineTo(cx + Math.cos(ang) * r1, cy + Math.sin(ang) * r1);
-                ctx.stroke();
+        ShapePath {
+            fillColor: "transparent"
+            strokeColor: Qt.rgba(Theme.accentContainer.r, Theme.accentContainer.g, Theme.accentContainer.b, 0.28)
+            strokeWidth: 2
+            PathAngleArc { centerX: root.width / 2; centerY: root.height / 2; radiusX: root.ringR; radiusY: root.ringR; startAngle: 0; sweepAngle: 360 }
+        }
+        ShapePath {
+            fillColor: "transparent"
+            strokeColor: Theme.accent
+            strokeWidth: 4
+            capStyle: ShapePath.RoundCap
+            PathAngleArc {
+                centerX: root.width / 2; centerY: root.height / 2
+                radiusX: root.ringR; radiusY: root.ringR
+                startAngle: -90
+                sweepAngle: Math.max(0.5, clock.date.getSeconds() * 6)
             }
-            ctx.globalAlpha = 1;
+        }
+    }
+
+    // ---- audio bars around the ring (idle: little dots) ----
+    Repeater {
+        model: root.barCount
+
+        Item {
+            id: slot
+            required property int index
+            // mirror the 16 bands so bass sits at the top on both sides
+            readonly property int band: index < 16 ? index : 31 - index
+            readonly property real lv: root.levels[band] ?? 0
+            x: root.width / 2
+            y: root.height / 2
+            rotation: -90 + (index + 0.5) / root.barCount * 360
+
+            Rectangle {
+                x: root.ringR + 14
+                y: -2.5
+                width: 1 + slot.lv * 52
+                height: 5
+                color: root.mix(Theme.accent, Theme.accent2, slot.band / 15)
+                opacity: 0.35 + 0.65 * Math.min(1, slot.lv * 1.6)
+            }
         }
     }
 

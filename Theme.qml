@@ -73,11 +73,12 @@ Singleton {
     // Banded diagonal wipe (see ShardWipe.qml): a wallpaper switch does not recolour the shell at once. It stages
     // the new palette and asks for a wipe; the wipe calls commit() when its bands cover the screen, so the
     // colours change underneath them. If nothing answers, a fallback timer commits anyway.
-    property bool wipe: true
+    property bool wipe: false          // off: a wallpaper switch just fades the colours (see ShardWipe.qml)
     property string pendingJson: ""
     property bool pendingPush: false
     property var wipeColors: []
     signal wipeRequested()
+    signal wipeCovered()     // the bands now cover the screen: switch whatever needs hiding
 
     function apply(json, pushToHyprland) {
         if (!(pushToHyprland && wipe)) { applyNow(json, pushToHyprland); return; }

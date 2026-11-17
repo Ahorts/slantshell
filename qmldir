@@ -1,10 +1,19 @@
 singleton Theme 1.0 Theme.qml
 singleton Notifs 1.0 Notifs.qml
 singleton Audio 1.0 Audio.qml
+singleton Lyrics 1.0 Lyrics.qml
+singleton Idle 1.0 Idle.qml
 Island 1.0 Island.qml
 SkewPanel 1.0 SkewPanel.qml
 ShardWipe 1.0 ShardWipe.qml
-Dashboard 1.0 Dashboard.qml
-WallpaperPicker 1.0 WallpaperPicker.qml
+CornerWheel 1.0 CornerWheel.qml
 Background 1.0 Background.qml
-Launcher 1.0 Launcher.qml
+Galaxy 1.0 Galaxy.qml
+Pet 1.0 Pet.qml
+DashboardFace 1.0 DashboardFace.qml
+LauncherFace 1.0 LauncherFace.qml
+ConnectivityFace 1.0 ConnectivityFace.qml
+BarZone 1.0 BarZone.qml
+PowerMenu 1.0 PowerMenu.qml
+WallpaperFace 1.0 WallpaperFace.qml
+WallpaperWindow 1.0 WallpaperWindow.qml

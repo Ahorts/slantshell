@@ -15,6 +15,7 @@ layout(std140, binding = 0) uniform buf {
     vec2 origin;        // panel top-left on the screen, px
     vec2 screenSize;    // screen size, px
     vec2 imageSize;     // wallpaper image size, px
+    float rb;           // radius of the rounded bottom corners, px (0 = square)
 };
 
 const float RADIUS = 22.0;      // blur radius, screen px
@@ -34,12 +35,19 @@ void main() {
     float t = clamp((p.y - yRange.x) / max(yRange.y - yRange.x, 1.0), 0.0, 1.0);
     float xl = mix(edges.x, edges.y, t);
     float xr = mix(edges.z, edges.w, t);
+    // rounded bottom corners: pull both sides in along a circle of radius rb
+    float yy = p.y - (yRange.y - rb);
+    if (rb > 0.5 && yy > 0.0) {
+        float inset = rb - sqrt(max(rb * rb - yy * yy, 0.0));
+        xl += inset;
+        xr -= inset;
+    }
     float a = clamp(p.x - xl + 0.5, 0.0, 1.0) * clamp(xr - p.x + 0.5, 0.0, 1.0);
     a *= step(yRange.x - 0.5, p.y) * step(p.y, yRange.y + 0.5);
     if (a <= 0.0) { fragColor = vec4(0.0); return; }
 
     vec2 sp = origin + p;
-    const int TAPS = 28;
+    const int TAPS = 16;
     vec3 acc = vec3(0.0);
     for (int i = 0; i < TAPS; i++) {
         float fi = float(i) + 0.5;

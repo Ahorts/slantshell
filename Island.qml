@@ -24,6 +24,42 @@ PanelWindow {
     id: bar
 
     signal launcherClicked()
+    signal connectivityClicked()
+
+    // ---- faces ----
+    // The island reshapes itself into a sculpted rounded notch for the dashboard (`radiusB: 28`), while the
+    // circular app switcher and orbital Wi-Fi/Bluetooth constellation float free in the middle of the screen.
+    property string face: ""
+    signal faceCloseRequested()
+    // faces open on the focused screen only (SLANT_TEST_ANYSCREEN=1 lets them open everywhere, for testing on a virtual monitor)
+    readonly property bool onFocusedScreen: (Quickshell.env("SLANT_TEST_ANYSCREEN") === "1" || Quickshell.env("SLANT_TEST_ANYSCREEN") === screen?.name || (!Quickshell.env("SLANT_TEST_ANYSCREEN") && Hyprland.focusedMonitor?.name === screen?.name))
+    readonly property string faceKey: onFocusedScreen ? face : ""
+    property string shownFace: ""             // the face whose content is on show right now
+    property real faceAlpha: 0
+    readonly property bool restVisible: shownFace === "" && faceKey === ""
+    readonly property real faceW: faceKey === "dashboard" ? faceDash.faceW : 0
+    readonly property real faceH: faceKey === "dashboard" ? faceDash.faceH : 0
+    readonly property bool faceRadial: false
+    readonly property bool faceDims: false
+    readonly property real faceContentOpacity: faceAlpha * island.fit
+    // content leaves in 110 ms, the new face arrives over 210 ms
+    onFaceKeyChanged: { faceEverHovered = false; faceSwap.restart(); }
+    SequentialAnimation {
+        id: faceSwap
+        NumberAnimation { target: bar; property: "faceAlpha"; to: 0; duration: 110 }
+        ScriptAction { script: bar.shownFace = bar.faceKey }
+        NumberAnimation { target: bar; property: "faceAlpha"; to: bar.faceKey === "" ? 0 : 1; duration: 210 }
+    }
+    // the dashboard and Wi-Fi panel close shortly after the pointer leaves
+    property bool faceEverHovered: false
+    Timer {
+        interval: bar.faceEverHovered ? 900 : 3500
+        running: (bar.faceKey === "dashboard" || bar.faceKey === "connectivity") && !islandHover.hovered && Quickshell.env("SLANT_TEST_ANYSCREEN") !== "1"
+        onTriggered: bar.faceCloseRequested()
+    }
+    // the launcher dims the screen on its own, slower timeline; clicking the dim closes it
+    property real dimLevel: faceDims ? 1 : 0
+    Behavior on dimLevel { NumberAnimation { duration: 520; easing.type: Easing.InOutQuad } }
     signal dashboardClicked()
 
     readonly property int gap: 8
@@ -31,9 +67,13 @@ PanelWindow {
     readonly property int smooth: 320
     readonly property int skew: 14
 
-    anchors { top: true; left: true; right: true }
-    implicitHeight: pillHeight + gap * 2
-    exclusiveZone: pillHeight + gap
+    // The surface covers the screen (the island can grow into a big panel anywhere in it), but only the panels, and
+    // the dimming backdrop while the launcher is open, take input. The bar's reserved strip comes from BarZone.qml.
+    anchors { top: true; left: true; right: true; bottom: true }
+    exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.layer: WlrLayer.Top
+    WlrLayershell.namespace: "qs-desktop-bar"
+    WlrLayershell.keyboardFocus: faceDims ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
     color: "transparent"
 
     // Only the panels take input; the rest of the surface is click-through.
@@ -41,6 +81,8 @@ PanelWindow {
         regions: [
             Region { item: leftPill },
             Region { item: island },
+            Region { item: musicChip },
+            Region { item: bar.faceDims ? backdrop : null },
             Region { item: rightPill }
         ]
     }
@@ -193,8 +235,36 @@ PanelWindow {
     }
     Timer { id: layoutDelay; interval: 280; onTriggered: bar.layoutView = bar.view }
 
+    // Gooey split: while music plays and a notification or volume popup takes over the island, a small music
+    // chip separates from it (joined by a thinning neck) so the song stays visible; it merges back afterwards.
+    property real split: (mediaMode && (view === "notif" || view === "osd") && faceKey === "") ? 1 : 0
+    Behavior on split { NumberAnimation { duration: 520; easing.type: Easing.OutBack; easing.overshoot: 1.3 } }
+
+    // Window name vs lyrics (see titleText): a click toggles it for good, a focus change shows it briefly.
+    property bool preferTitle: false
+    property bool titleFlash: false
+    Timer { id: titleFlashTimer; interval: 2600; onTriggered: bar.titleFlash = false }
+    Connections {
+        target: ToplevelManager
+        function onActiveToplevelChanged() {
+            if (!(bar.mediaMode && Lyrics.hasLyrics)) return;
+            bar.titleFlash = true;
+            titleFlashTimer.restart();
+        }
+    }
+
     // Which view the island is showing (priority order).
     readonly property string view: notifMode ? "notif" : (osdKind !== "" ? "osd" : ((mediaMode && (trackFlash || islandHover.hovered)) ? "media" : "title"))
+
+    // ---- dimming backdrop (the launcher face) ----
+    Rectangle {
+        id: backdrop
+        anchors.fill: parent
+        color: "#000000"
+        opacity: 0.55 * bar.dimLevel
+        visible: bar.dimLevel > 0.002
+        MouseArea { anchors.fill: parent; enabled: bar.faceDims; onClicked: bar.faceCloseRequested() }
+    }
 
     // =========================================================== LEFT: launcher + workspaces
     SkewPanel {
@@ -302,35 +372,91 @@ PanelWindow {
         glass: true
         opacity: Math.min(1, bar.introC * 1.5)
         transform: Translate { y: (1 - bar.introC) * -70 }
-        skewL: -bar.skew   // both slants: "\\" on the left edge, "/" on the right (wider at the top)
-        skewR: bar.skew
+        skewL: -shapeSkew   // both slants: "\\" on the left edge, "/" on the right (wider at the top)
+        skewR: shapeSkew
+        radiusB: shapeRB
+        property real shapeSkew: bar.faceKey !== "" ? 0 : bar.skew
+        Behavior on shapeSkew { SpringAnimation { spring: 5.2; damping: 0.58; epsilon: 0.05 } }
+        property real shapeRB: bar.faceKey !== "" ? 28 : 0
+        Behavior on shapeRB { SpringAnimation { spring: 3.6; damping: 0.4; epsilon: 0.1 } }
         y: bar.gap
         x: Math.round((bar.width - width) / 2)
-        // Size follows whichever view is active, with a floor so it never collapses.
-        width: bar.layoutView === "notif" ? 500
+        // Size: the resting content's width (with a floor), or the face asked for. Content is tied to the shape's real,
+        // animated size: it shows only once the shape has ARRIVED (`fit`), so nothing appears before there is room.
+        clip: true
+        readonly property real restW: bar.layoutView === "notif" ? 500
              : bar.layoutView === "osd" ? 250
              : Math.max(140, (bar.layoutView === "media" ? mediaView.implicitWidth : titleView.implicitWidth) + 36)
+        readonly property real targetW: bar.faceKey !== "" ? bar.faceW : restW
+        readonly property real targetH: bar.faceKey !== "" ? bar.faceH : bar.pillHeight
+        width: targetW
+        height: targetH
+        function near(v, tgt) { return Math.max(0, Math.min(1, 1 - (Math.abs(v - tgt) / Math.max(tgt, 60) - 0.04) / 0.08)); }
+        readonly property real closeness: Math.min(near(width, targetW), near(height, targetH))
+        property bool arrived: true            // latched: springs overshoot, and the content must not flicker out
+        property real lastW: 0
+        property real lastH: 0
+        // Lyric lines and window names change often: the shape just follows the new width and the words swap
+        // in place (see titleSlot). Hiding the text until the shape "arrives" is for real changes of content only.
+        readonly property bool lyricFlow: bar.faceKey === "" && bar.layoutView === "title" && bar.view === "title"
+        onTargetWChanged: if (Math.abs(targetW - lastW) > 3) { lastW = targetW; if (!lyricFlow) arrived = false; }
+        onTargetHChanged: if (Math.abs(targetH - lastH) > 3) { lastH = targetH; arrived = false; }
+        onClosenessChanged: if (closeness >= 0.96) arrived = true
+        readonly property real fit: arrived ? 1 : closeness
         // Outline gauge: notification countdown / volume & brightness level.
         progress: bar.view === "notif" ? bar.notifProgress : (bar.view === "osd" ? bar.osdValue : -1)
         gaugeFromTop: bar.view === "notif"   // countdown: the bottom disappears first, the rest retreats to the top
+        // lightning: the notification countdown is a live current (pronounced), the volume/brightness gauge a lighter
+        // one; while music plays a faint current runs along the bottom edge and jumps with the bass
+        gaugeSpark: bar.view === "notif" ? 0.6 : (bar.view === "osd" ? 0.25 : 0)
+        edgeSpark: (bar.mediaMode && bar.faceKey === "" && bar.view !== "notif") ? 0.04 + 0.4 * Math.min(1, (Audio.bars[1] ?? 0) / 100) : 0
+        Connections {
+            target: bar
+            function onViewChanged() { if (bar.view === "notif") island.sparkBurst(0.9); }
+        }
         progressColor: bar.view === "notif" && bar.notifCritical ? Theme.warn
                      : (bar.view === "osd" && bar.osdMuted ? Theme.fgDim : Theme.accent)
         Behavior on progress { enabled: bar.view === "osd"; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-        height: bar.pillHeight
         stroke: bar.notifMode && bar.notifCritical ? Theme.warn : Theme.accentContainer
-        Behavior on width { NumberAnimation { duration: 460; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
+        // a tight spring: arrives fast, barely overshoots (the content waits for it, see `fit`)
+        Behavior on width { SpringAnimation { spring: 5.2; damping: 0.58; epsilon: 0.25 } }
+        // a looser spring for the height: it follows the width and overshoots a little, so the shape opens, not inflates
+        Behavior on height { SpringAnimation { spring: 3.1; damping: 0.34; epsilon: 0.25 } }
 
-        HoverHandler { id: islandHover }
+        HoverHandler { id: islandHover; onHoveredChanged: if (hovered) bar.faceEverHovered = true }
 
-        // Click a notification to run its default action; right-click to dismiss.
+        // Notification: click runs its default action, right-click dismisses.
+        // Otherwise, while lyrics are showing, a click switches between the lyrics and the window name.
         MouseArea {
             anchors.fill: parent
-            enabled: bar.notifMode
+            enabled: bar.notifMode || (bar.mediaMode && Lyrics.hasLyrics)
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             onClicked: mouse => {
-                if (mouse.button === Qt.RightButton) Notifs.next();
-                else Notifs.activate();
+                if (bar.notifMode) {
+                    if (mouse.button === Qt.RightButton) Notifs.next();
+                    else Notifs.activate();
+                } else {
+                    bar.preferTitle = !bar.preferTitle;
+                    bar.titleFlash = false;
+                }
             }
+        }
+
+        // swallow clicks inside the shape while a face is open (so the launcher's click-outside-to-close ignores them)
+        MouseArea { anchors.fill: parent; enabled: bar.faceKey !== ""; acceptedButtons: Qt.AllButtons; hoverEnabled: false }
+
+        // ---- faces: the shape grows to fit the dashboard ----
+        DashboardFace {
+            id: faceDash
+            width: faceW
+            height: faceH
+            anchors.horizontalCenter: parent.horizontalCenter
+            active: bar.shownFace === "dashboard"
+            visible: bar.shownFace === "dashboard" && opacity > 0.01
+            opacity: bar.faceContentOpacity
+            scale: 0.90 + 0.10 * opacity
+            transformOrigin: Item.Top
+            transform: Translate { y: (1 - faceDash.opacity) * -14 }
         }
 
         // ---- Notification view ----
@@ -338,9 +464,11 @@ PanelWindow {
             id: notifView
             anchors.centerIn: parent
             spacing: 12
-            opacity: bar.notifMode ? 1 : 0
+            opacity: (bar.notifMode && bar.restVisible) ? island.fit : 0
             visible: opacity > 0.01
-            Behavior on opacity { NumberAnimation { duration: 240 } }
+            // content leaves in half the time it takes to arrive, and rises into place (like a lyric line)
+            Behavior on opacity { NumberAnimation { duration: (bar.notifMode) ? 210 : 110 } }
+            transform: Translate { y: (1 - notifView.opacity) * 10 }
 
             IconImage {
                 Layout.preferredWidth: 24
@@ -387,9 +515,11 @@ PanelWindow {
             id: osdView
             anchors.centerIn: parent
             spacing: 12
-            opacity: bar.layoutView === "osd" ? 1 : 0
+            opacity: (bar.layoutView === "osd" && bar.restVisible) ? island.fit : 0
             visible: opacity > 0.01
-            Behavior on opacity { NumberAnimation { duration: 240 } }
+            // content leaves in half the time it takes to arrive, and rises into place (like a lyric line)
+            Behavior on opacity { NumberAnimation { duration: (bar.layoutView === "osd") ? 210 : 110 } }
+            transform: Translate { y: (1 - osdView.opacity) * 10 }
 
             Text {
                 text: bar.osdKind === "brightness" ? "󰃠" : (bar.osdMuted ? "󰝟" : "󰕾")
@@ -419,9 +549,11 @@ PanelWindow {
             id: titleView
             anchors.centerIn: parent
             spacing: 10
-            opacity: bar.layoutView === "title" ? 1 : 0
+            opacity: (bar.layoutView === "title" && bar.restVisible) ? island.fit : 0
             visible: opacity > 0.01
-            Behavior on opacity { NumberAnimation { duration: 240 } }
+            // content leaves in half the time it takes to arrive, and rises into place (like a lyric line)
+            Behavior on opacity { NumberAnimation { duration: (bar.layoutView === "title") ? 210 : 110 } }
+            transform: Translate { y: (1 - titleView.opacity) * 10 }
 
             // Small visualizer icon while music plays.
             Row {
@@ -441,19 +573,75 @@ PanelWindow {
                         height: Math.max(3, level * 18)
                         radius: 1.5
                         color: Qt.tint(Theme.accent, Qt.rgba(Theme.accent2.r, Theme.accent2.g, Theme.accent2.b, index / 8))
-                        Behavior on height { NumberAnimation { duration: 70 } }
-                    }
+                        }
                 }
             }
 
-            Text {
+            // The window title, or (while synced lyrics are available) the line being sung, which slides up
+            // into place each time the line changes.
+            Item {
+                id: titleSlot
+                // exactly as wide as the text (no animation of its own: the island's spring is the only thing
+                // that moves, so the line always sits dead centre and the island opens evenly around it)
                 Layout.maximumWidth: 380
-                readonly property string value: ToplevelManager.activeToplevel?.title ?? ""
-                text: value !== "" ? value : "Desktop"
-                color: Theme.fg
-                elide: Text.ElideRight
-                font.family: Theme.font
-                font.pixelSize: Theme.fontSize
+                Layout.preferredWidth: Math.min(380, Math.ceil(titleText.implicitWidth))
+                Layout.preferredHeight: titleText.implicitHeight
+
+                // the line that was just sung: lifts up and fades while the new one rises into its place
+                Text {
+                    id: ghost
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: Math.min(380, implicitWidth)
+                    elide: Text.ElideRight
+                    horizontalAlignment: Text.AlignHCenter
+                    textFormat: Text.StyledText
+                    color: Theme.fgDim
+                    opacity: 0
+                    font: titleText.font
+                    ParallelAnimation {
+                        id: ghostOut
+                        NumberAnimation { target: ghost; property: "y"; from: 0; to: -10; duration: 130; easing.type: Easing.InCubic }
+                        NumberAnimation { target: ghost; property: "opacity"; from: 0.7; to: 0; duration: 110 }
+                    }
+                }
+
+                Text {
+                    id: titleText
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: parent.width
+                    readonly property string value: ToplevelManager.activeToplevel?.title ?? ""
+                    // Lyrics show while music plays, except while the window name is wanted: it flashes in for a
+                    // moment whenever the focused window changes, and a click on the island switches between
+                    // lyrics and the window name for good.
+                    readonly property bool lyric: bar.mediaMode && Lyrics.hasLyrics && !bar.preferTitle && !bar.titleFlash
+                    textFormat: lyric ? Text.StyledText : Text.PlainText
+                    text: lyric ? (Lyrics.line !== "" ? Lyrics.lineHtml : "♪") : (value !== "" ? value : "Desktop")
+                    color: Theme.fg
+                    elide: Text.ElideRight
+                    horizontalAlignment: Text.AlignHCenter
+                    font.family: Theme.font
+                    font.pixelSize: Theme.fontSize
+                    font.italic: lyric
+                    // When the line (not just the highlighted word) changes, the old line leaves upwards and the
+                    // new one rises from below. `shownHtml` is what was on screen for the line that is ending.
+                    property int seenIndex: -2
+                    property string shownHtml: ""
+                    // The window name swaps the same way when focus moves to another window.
+                    onTextChanged: {
+                        const newLine = lyric ? Lyrics.index !== seenIndex : true;
+                        if (newLine) {
+                            if (shownHtml !== "" && titleView.opacity > 0.5) { ghost.text = shownHtml; ghostOut.restart(); lineIn.restart(); }
+                            if (lyric) seenIndex = Lyrics.index;
+                        }
+                        shownHtml = lyric ? titleText.text : titleText.text.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+                    }
+                    onLyricChanged: { seenIndex = lyric ? Lyrics.index : -2; ghostOut.stop(); ghost.opacity = 0; lineIn.restart(); }
+                    ParallelAnimation {
+                        id: lineIn
+                        NumberAnimation { target: titleText; property: "y"; from: 13; to: 0; duration: 240; easing.type: Easing.OutCubic }
+                        NumberAnimation { target: titleText; property: "opacity"; from: 0; to: 1; duration: 240 }
+                    }
+                }
             }
         }
 
@@ -462,9 +650,11 @@ PanelWindow {
             id: mediaView
             anchors.centerIn: parent
             spacing: 10
-            opacity: bar.layoutView === "media" ? 1 : 0
+            opacity: (bar.layoutView === "media" && bar.restVisible) ? island.fit : 0
             visible: opacity > 0.01
-            Behavior on opacity { NumberAnimation { duration: 240 } }
+            // content leaves in half the time it takes to arrive, and rises into place (like a lyric line)
+            Behavior on opacity { NumberAnimation { duration: (bar.layoutView === "media") ? 210 : 110 } }
+            transform: Translate { y: (1 - mediaView.opacity) * 10 }
 
             Text {
                 text: "󰎆"
@@ -491,8 +681,7 @@ PanelWindow {
                         height: Math.max(3, level * 22)
                         radius: 1.5
                         color: Qt.tint(Theme.accent, Qt.rgba(Theme.accent2.r, Theme.accent2.g, Theme.accent2.b, index / 20))
-                        Behavior on height { NumberAnimation { duration: 70 } }
-                    }
+                        }
                 }
             }
 
@@ -550,6 +739,53 @@ PanelWindow {
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+
+    // =========================================================== the music chip that splits off the island
+    // neck: a bridge between the chip and the island that is thick while they separate and thins to nothing
+    Rectangle {
+        visible: bar.split > 0.02 && bar.split < 0.98
+        readonly property real bridge: Math.sin(Math.PI * Math.min(1, bar.split))
+        x: musicChip.x + musicChip.width - 4
+        width: Math.max(0, island.x - x + 4)
+        height: bar.pillHeight * 0.62 * bridge
+        y: bar.gap + (bar.pillHeight - height) / 2
+        color: Theme.bg
+        border.color: Theme.accentContainer
+        border.width: 1
+        radius: height / 2
+    }
+    SkewPanel {
+        id: musicChip
+        glass: true
+        skewL: -bar.skew
+        skewR: bar.skew
+        visible: bar.split > 0.01
+        y: bar.gap
+        height: bar.pillHeight
+        width: 30 + 6 * 8
+        // slides out of the island's left edge
+        x: island.x + (island.width - width) / 2 - bar.split * (island.width / 2 + width / 2 + 14)
+        opacity: Math.min(1, bar.split * 1.6)
+        scale: 0.6 + 0.4 * Math.min(1, bar.split)
+        stroke: Theme.accentContainer
+
+        Row {
+            anchors.centerIn: parent
+            spacing: 3
+            Repeater {
+                model: 6
+                Rectangle {
+                    required property int index
+                    readonly property real level: (Audio.bars[index * 2 + 1] ?? 0) / 100
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 4
+                    height: Math.max(4, level * 22)
+                    radius: 2
+                    color: Qt.tint(Theme.accent, Qt.rgba(Theme.accent2.r, Theme.accent2.g, Theme.accent2.b, index / 8))
                 }
             }
         }
@@ -625,6 +861,23 @@ PanelWindow {
                             }
                         }
                     }
+                }
+            }
+
+            // ---- Connectivity (click for Wi-Fi & Bluetooth constellation) ----
+            Text {
+                text: "󰤨"
+                color: netArea.containsMouse ? Theme.accent : Theme.fg
+                font.family: Theme.font
+                font.pixelSize: Theme.fontSize + 2
+                Behavior on color { ColorAnimation { duration: 120 } }
+
+                MouseArea {
+                    id: netArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: bar.connectivityClicked()
                 }
             }
 

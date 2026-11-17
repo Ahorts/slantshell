@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Shapes
 import QtQuick.Effects
+import "widgets"
 
 // Slanted panel (skwd-style). Each side edge has its own lean:
 //   skewL / skewR > 0  lean like "/"  (top edge shifted right of the bottom edge)
@@ -36,6 +37,12 @@ Item {
     //        bottom disappears first and the remainder retreats to the top).
     property bool gaugeFromTop: false
 
+    // Rounded bottom corners. 0 is the plain slanted polygon; larger values round both bottom corners, and
+    // a radius of half the width (with the height equal to it) makes the whole shape a half disc hanging from the top.
+    // Springs animate this, so the island can melt from a pill into a dial.
+    property real radiusB: 0
+    readonly property bool round: radiusB > 0.5
+
     // Frosted glass: a blurred copy of the wallpaper (aligned to the screen) shows through the fill.
     // The panel must be a direct child of its window; tell it where that window sits on the screen.
     property bool glass: false
@@ -60,6 +67,15 @@ Item {
     readonly property real brx: skewR > 0 ? width - skewR : width - inR
     readonly property real ty: strokeTop ? p : 0
     readonly property real by: height - p
+
+    // Rounded-corner geometry: where each slanted side stops being straight, and the circle-ish corner curves.
+    readonly property real rbEff: Math.max(0, Math.min(radiusB, by - ty, (brx - blx) / 2))
+    readonly property real fr: (by - ty) > 1 ? (by - ty - rbEff) / (by - ty) : 1
+    readonly property real rpx: trx + (brx - trx) * fr      // right side, where the curve starts
+    readonly property real rpy: ty + (by - ty) * fr
+    readonly property real lpx: tlx + (blx - tlx) * fr      // left side
+    readonly property real lpy: rpy
+    readonly property real kap: 0.5523                      // cubic approximation of a quarter circle
 
     // Gauge geometry: the middle of the bottom and top edges, and the length of each half outline.
     readonly property real midBottom: (blx + brx) / 2
@@ -93,6 +109,7 @@ Item {
         property vector2d origin: Qt.vector2d(root.x + root.glassOriginX, root.y + root.glassOriginY)
         property vector2d screenSize: Qt.vector2d(Screen.width, Screen.height)
         property vector2d imageSize: Qt.vector2d(Math.max(1, wall.implicitWidth), Math.max(1, wall.implicitHeight))
+        property real rb: root.rbEff
         fragmentShader: "shaders/glass.frag.qsb"
     }
 
@@ -103,7 +120,7 @@ Item {
 
         // Fill
         ShapePath {
-            fillColor: root.shownFill
+            fillColor: root.round ? "transparent" : root.shownFill
             strokeColor: "transparent"
             strokeWidth: -1
 
@@ -114,10 +131,34 @@ Item {
             PathLine { x: root.tlx;         y: root.ty }
         }
 
+        // Rounded version (fill and outline in one closed path), used while radiusB > 0
+        ShapePath {
+            fillColor: root.round ? root.shownFill : "transparent"
+            strokeColor: root.round && root.strokeWidth > 0 ? root.edgeColor : "transparent"
+            strokeWidth: root.strokeWidth > 0 ? root.strokeWidth : -1
+            joinStyle: ShapePath.RoundJoin
+
+            startX: root.tlx;               startY: root.ty
+            PathLine { x: root.trx;         y: root.ty }
+            PathLine { x: root.rpx;         y: root.rpy }
+            PathCubic {
+                x: root.brx - root.rbEff;   y: root.by
+                control1X: root.rpx + (root.brx - root.rpx) * root.kap;   control1Y: root.rpy + (root.by - root.rpy) * root.kap
+                control2X: root.brx - root.rbEff + root.rbEff * root.kap; control2Y: root.by
+            }
+            PathLine { x: root.blx + root.rbEff; y: root.by }
+            PathCubic {
+                x: root.lpx;                y: root.lpy
+                control1X: root.blx + root.rbEff - root.rbEff * root.kap; control1Y: root.by
+                control2X: root.lpx + (root.blx - root.lpx) * root.kap;   control2Y: root.lpy + (root.by - root.lpy) * root.kap
+            }
+            PathLine { x: root.tlx;         y: root.ty }
+        }
+
         // Outline, one path per edge so edges attached to the screen can be left out.
         // (dimmed while the gauge arc is drawing on top)
         ShapePath {   // top
-            readonly property bool on: root.strokeWidth > 0 && root.strokeTop
+            readonly property bool on: root.strokeWidth > 0 && root.strokeTop && !root.round
             fillColor: "transparent"
             strokeColor: on ? root.edgeColor : "transparent"
             strokeWidth: root.strokeWidth > 0 ? root.strokeWidth : -1
@@ -126,7 +167,7 @@ Item {
             PathLine { x: root.trx; y: root.ty }
         }
         ShapePath {   // right
-            readonly property bool on: root.strokeWidth > 0 && root.strokeRight
+            readonly property bool on: root.strokeWidth > 0 && root.strokeRight && !root.round
             fillColor: "transparent"
             strokeColor: on ? root.edgeColor : "transparent"
             strokeWidth: root.strokeWidth > 0 ? root.strokeWidth : -1
@@ -136,14 +177,14 @@ Item {
         }
         ShapePath {   // bottom (always)
             fillColor: "transparent"
-            strokeColor: root.strokeWidth > 0 ? root.edgeColor : "transparent"
+            strokeColor: root.strokeWidth > 0 && !root.round ? root.edgeColor : "transparent"
             strokeWidth: root.strokeWidth > 0 ? root.strokeWidth : -1
             capStyle: ShapePath.SquareCap
             startX: root.brx; startY: root.by
             PathLine { x: root.blx; y: root.by }
         }
         ShapePath {   // left
-            readonly property bool on: root.strokeWidth > 0 && root.strokeLeft
+            readonly property bool on: root.strokeWidth > 0 && root.strokeLeft && !root.round
             fillColor: "transparent"
             strokeColor: on ? root.edgeColor : "transparent"
             strokeWidth: root.strokeWidth > 0 ? root.strokeWidth : -1
@@ -156,7 +197,7 @@ Item {
         // two arcs meet at the top-middle when they are full.
         ShapePath {   // right half: bottom-middle -> right along the bottom -> up the right edge -> top-middle
             fillColor: "transparent"
-            strokeColor: root.gauge ? root.progressColor : "transparent"
+            strokeColor: root.gauge && !root.round ? root.progressColor : "transparent"
             strokeWidth: root.progressWidth
             capStyle: ShapePath.RoundCap
             joinStyle: ShapePath.RoundJoin
@@ -170,7 +211,7 @@ Item {
         }
         ShapePath {   // left half: mirror image
             fillColor: "transparent"
-            strokeColor: root.gauge ? root.progressColor : "transparent"
+            strokeColor: root.gauge && !root.round ? root.progressColor : "transparent"
             strokeWidth: root.progressWidth
             capStyle: ShapePath.RoundCap
             joinStyle: ShapePath.RoundJoin
@@ -182,6 +223,70 @@ Item {
             PathLine { x: root.gaugeFromTop ? root.blx : root.tlx;      y: root.gaugeFromTop ? root.by : root.ty }
             PathLine { x: root.gaugeFromTop ? root.midBottom : root.midTop; y: root.gaugeFromTop ? root.by : root.ty }
         }
+    }
+
+    // ---- lightning ----
+    // gaugeSpark (0..1): the gauge itself becomes a live current, with a bright head where it ends.
+    // edgeSpark (0..1): a current along the bottom edge (0 = off).
+    property real gaugeSpark: 0
+    property real edgeSpark: 0
+    function sparkBurst(amount) { gR.burst(amount); gL.burst(amount); bottomSpark.burst(amount); }
+    readonly property var halfR: gaugeFromTop ? [[midTop, ty], [trx, ty], [brx, by], [midBottom, by]]
+                                              : [[midBottom, by], [brx, by], [trx, ty], [midTop, ty]]
+    readonly property var halfL: gaugeFromTop ? [[midTop, ty], [tlx, ty], [blx, by], [midBottom, by]]
+                                              : [[midBottom, by], [blx, by], [tlx, ty], [midTop, ty]]
+    EdgeSpark {
+        id: gR
+        anchors.fill: parent
+        visible: root.gauge && root.gaugeSpark > 0 && !root.round && root.progress > 0.01
+        points: root.halfR
+        arcTo: Math.max(0.01, root.progress)
+        intensity: root.gaugeSpark
+        color: root.progressColor
+        speed: 1.4
+    }
+    EdgeSpark {
+        id: gL
+        anchors.fill: parent
+        visible: gR.visible
+        points: root.halfL
+        arcTo: Math.max(0.01, root.progress)
+        intensity: root.gaugeSpark
+        color: root.progressColor
+        speed: 1.4
+    }
+    // the two heads: bright flickering points where the current ends
+    Repeater {
+        model: gR.visible ? [gR, gL] : []
+        Rectangle {
+            required property var modelData
+            readonly property var pt: { root.progress; root.width; return modelData.at(modelData.arcTo); }
+            readonly property real sz: 5 + 3 * Math.random() * root.gaugeSpark + flick.v * 2
+            x: pt[0] - sz / 2
+            y: pt[1] - sz / 2
+            width: sz; height: sz; radius: sz / 2
+            color: "white"
+            antialiasing: true
+            Rectangle {
+                anchors.centerIn: parent
+                width: parent.width * 3.2; height: width; radius: width / 2
+                color: Qt.rgba(root.progressColor.r, root.progressColor.g, root.progressColor.b, 0.35)
+                z: -1
+            }
+        }
+    }
+    QtObject {
+        id: flick
+        property real v: 0
+    }
+    Timer { interval: 70; repeat: true; running: gR.visible; onTriggered: flick.v = Math.random() }
+    EdgeSpark {
+        id: bottomSpark
+        anchors.fill: parent
+        visible: root.edgeSpark > 0
+        points: [[root.blx, root.by], [root.brx, root.by]]
+        intensity: root.edgeSpark
+        speed: 0.8
     }
 
     Item { id: holder; anchors.fill: parent }

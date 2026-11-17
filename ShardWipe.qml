@@ -48,7 +48,7 @@ PanelWindow {
     }
 
     // Hand over to the new palette once the bands cover the screen.
-    onTChanged: if (!committed && t >= 0.52) { committed = true; Theme.commit(); }
+    onTChanged: if (!committed && t >= 0.52) { committed = true; Theme.commit(); Theme.wipeCovered(); }
 
     // Geometry of band i (0 = top): its four corners, leaning "/".
     function band(i) {

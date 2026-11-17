@@ -80,10 +80,41 @@ Card {
             }
         }
 
-        // Live visualizer
+        // Synced lyrics: the line being sung (word by word when the lyrics have word timing) and the next one
+        Column {
+            Layout.alignment: Qt.AlignHCenter
+            Layout.preferredWidth: parent.width
+            Layout.preferredHeight: 30
+            visible: Lyrics.hasLyrics
+            spacing: 2
+            Text {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                textFormat: Text.StyledText
+                text: Lyrics.line !== "" ? Lyrics.lineHtml : "\u266a"
+                color: Theme.fg
+                elide: Text.ElideRight
+                font.family: Theme.font
+                font.pixelSize: Theme.fontSize
+                font.italic: true
+                font.bold: true
+            }
+            Text {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                text: Lyrics.next
+                color: Theme.fgDim
+                elide: Text.ElideRight
+                font.family: Theme.font
+                font.pixelSize: Theme.fontSize - 2
+            }
+        }
+
+        // Live visualizer (when there are no lyrics to show)
         Row {
             Layout.alignment: Qt.AlignHCenter
             Layout.preferredHeight: 30
+            visible: !Lyrics.hasLyrics
             spacing: 5
 
             Repeater {

@@ -10,10 +10,35 @@ import QtQuick
 //   qs -p /path/to/slantshell ipc call wallpapers toggle
 ShellRoot {
     id: root
+    // singletons load lazily: touch Idle so the sleep inhibitor starts with the shell
+    readonly property bool keepAwake: Idle.inhibit
 
     property bool launcherOpen: false
     property bool wallpapersOpen: false
     property bool dashboardOpen: false
+    property bool powerOpen: false
+    // Only one drawer grows out of the island at a time: opening one sends the others back in.
+    onDashboardOpenChanged: if (dashboardOpen) { launcherOpen = false; connectivityOpen = false; powerOpen = false; wallpapersOpen = false; }
+    onLauncherOpenChanged: if (launcherOpen) { dashboardOpen = false; connectivityOpen = false; powerOpen = false; wallpapersOpen = false; }
+    onConnectivityOpenChanged: if (connectivityOpen) { dashboardOpen = false; launcherOpen = false; powerOpen = false; wallpapersOpen = false; }
+    onPowerOpenChanged: if (powerOpen) { dashboardOpen = false; launcherOpen = false; connectivityOpen = false; wallpapersOpen = false; }
+    onWallpapersOpenChanged: if (wallpapersOpen) { dashboardOpen = false; launcherOpen = false; connectivityOpen = false; powerOpen = false; }
+    property bool galaxyOpen: false
+    property string galaxyName: ""
+    property int galaxySelectTick: 0
+    property int galaxyEndTick: 0
+    property int galaxyConfirmTick: 0
+    property int galaxyCancelTick: 0
+    property bool petOn: true
+    property bool petAuto: false
+    property int petGameOn: 0
+    property int petGameOff: 0
+    property bool wheelOpen: false
+    property int wheelHot: -1
+    property int wheelTurn: 0
+    property bool connectivityOpen: false
+    property int connectivityTab: -1
+    property int wallpaperTurn: 0
     // Hard window edges are the default for this shell (square corners, your own border kept).
     // Set to false to leave your Hyprland rounding alone. Toggle live with `ipc call sharp toggle`.
     property bool sharp: true
@@ -61,6 +86,74 @@ ShellRoot {
     }
 
     IpcHandler {
+        target: "wheel"
+        function open(): void { root.wheelOpen = true; }
+        function close(): void { root.wheelOpen = false; root.wheelHot = -1; }
+        function hover(i: int): void { root.wheelHot = i; }
+        function turn(): void { root.wheelTurn += 1; }
+    }
+
+    // Desktop pet and its game: `pet on|off`, `pet game on|off`, `pet auto on|off`.
+    IpcHandler {
+        target: "pet"
+        function on(): void { root.petOn = true; }
+        function off(): void { root.petOn = false; }
+        function game(state: string): void { if (state === "on") root.petGameOn += 1; else root.petGameOff += 1; }
+        function auto(state: string): void { root.petAuto = state === "on"; }
+    }
+
+    // System galaxy. `select <name>`, `end <name>`, `confirm` and `cancel` drive it without a mouse (testing, demos).
+    IpcHandler {
+        target: "galaxy"
+        function toggle(): void { root.galaxyOpen = !root.galaxyOpen; }
+        function open(): void { root.galaxyOpen = true; }
+        function close(): void { root.galaxyOpen = false; }
+        function select(name: string): void { root.galaxyName = name; root.galaxySelectTick += 1; }
+        function end(name: string): void { root.galaxyName = name; root.galaxyEndTick += 1; }
+        function confirm(): void { root.galaxyConfirmTick += 1; }
+        function cancel(): void { root.galaxyCancelTick += 1; }
+    }
+
+    IpcHandler {
+        target: "power"
+        function toggle(): void { root.powerOpen = !root.powerOpen; }
+        function open(): void { root.powerOpen = true; }
+        function close(): void { root.powerOpen = false; }
+    }
+
+    IpcHandler {
+        target: "connectivity"
+        function toggle(): void { root.connectivityOpen = !root.connectivityOpen; }
+        function open(): void { root.connectivityOpen = true; }
+        function close(): void { root.connectivityOpen = false; }
+        function tab(i: int): void { root.connectivityTab = i; }
+    }
+
+    // What the corner wheel's buttons do.
+    function wheelAction(name) {
+        switch (name) {
+        case "wallpapers":   root.wallpapersOpen = true; break;
+        case "dashboard":    root.dashboardOpen = true; break;
+        case "launcher":     root.launcherOpen = true; break;
+        case "power":        root.powerOpen = true; break;
+        case "galaxy":       root.galaxyOpen = true; break;
+        case "pet":          root.petOn = !root.petOn; break;
+        case "connectivity": root.connectivityOpen = true; break;
+        case "sharp":        root.sharp = !root.sharp; break;
+        case "flappy":       root.flappyAuto = !root.flappyAuto; break;
+        case "lock":         Quickshell.execDetached(["loginctl", "lock-session"]); break;
+        }
+    }
+
+    // `ipc call lyrics info` prints where the current lyrics came from and whether they have word timing.
+    IpcHandler {
+        target: "lyrics"
+        function info(): string {
+            return Lyrics.status + " | " + (Lyrics.source || "-") + " | words: " + Lyrics.wordSynced + " | lines: " + Lyrics.lines.length;
+        }
+    }
+
+    IpcHandler {
         target: "dashboard"
         function toggle(): void { root.dashboardOpen = !root.dashboardOpen; }
         function open(): void { root.dashboardOpen = true; }
@@ -72,6 +165,7 @@ ShellRoot {
         function toggle(): void { root.wallpapersOpen = !root.wallpapersOpen; }
         function open(): void { root.wallpapersOpen = true; }
         function close(): void { root.wallpapersOpen = false; }
+        function turn(): void { root.wallpaperTurn += 1; }
     }
 
     Variants {
@@ -82,26 +176,63 @@ ShellRoot {
             required property var modelData
 
             ShardWipe { screen: perScreen.modelData }
-            Background { screen: perScreen.modelData; flappyAuto: root.flappyAuto }
-            Island {
+            Background {
+                id: desk
                 screen: perScreen.modelData
-                onLauncherClicked: root.launcherOpen = !root.launcherOpen
-                onDashboardClicked: root.dashboardOpen = !root.dashboardOpen
+                flappyAuto: root.flappyAuto
+                petOn: root.petOn
+                petAuto: root.petAuto
+                Connections { target: root; function onPetGameOnChanged() { desk.pet.startGame(); } }
+                Connections { target: root; function onPetGameOffChanged() { desk.pet.endGame(); } }
             }
-            Dashboard {
+            PowerMenu {
                 screen: perScreen.modelData
-                open: root.dashboardOpen
-                onCloseRequested: root.dashboardOpen = false
+                open: root.powerOpen
+                onCloseRequested: root.powerOpen = false
             }
-            WallpaperPicker {
-                screen: perScreen.modelData
-                open: root.wallpapersOpen
-                onCloseRequested: root.wallpapersOpen = false
-            }
-            Launcher {
+            LauncherFace {
                 screen: perScreen.modelData
                 open: root.launcherOpen
                 onCloseRequested: root.launcherOpen = false
+            }
+            ConnectivityFace {
+                screen: perScreen.modelData
+                open: root.connectivityOpen
+                forceTab: root.connectivityTab
+                onCloseRequested: root.connectivityOpen = false
+            }
+            WallpaperWindow {
+                screen: perScreen.modelData
+                open: root.wallpapersOpen
+                forceTurn: root.wallpaperTurn
+                onCloseRequested: root.wallpapersOpen = false
+            }
+            BarZone { screen: perScreen.modelData }
+            Island {
+                id: isl
+                screen: perScreen.modelData
+                face: root.dashboardOpen ? "dashboard" : ""
+                onLauncherClicked: root.launcherOpen = !root.launcherOpen
+                onConnectivityClicked: root.connectivityOpen = !root.connectivityOpen
+                onDashboardClicked: root.dashboardOpen = !root.dashboardOpen
+                onFaceCloseRequested: { root.dashboardOpen = false; root.launcherOpen = false; root.connectivityOpen = false; root.powerOpen = false; root.wallpapersOpen = false; }
+            }
+            Galaxy {
+                id: galaxy
+                screen: perScreen.modelData
+                open: root.galaxyOpen
+                onCloseRequested: root.galaxyOpen = false
+                Connections { target: root; function onGalaxySelectTickChanged() { galaxy.select(root.galaxyName); } }
+                Connections { target: root; function onGalaxyEndTickChanged() { galaxy.askEndByName(root.galaxyName); } }
+                Connections { target: root; function onGalaxyConfirmTickChanged() { galaxy.confirm(); } }
+                Connections { target: root; function onGalaxyCancelTickChanged() { galaxy.cancel(); } }
+            }
+            CornerWheel {
+                screen: perScreen.modelData
+                onAction: name => root.wheelAction(name)
+                forceOpen: root.wheelOpen
+                forceHot: root.wheelHot
+                forceTurn: root.wheelTurn
             }
         }
     }

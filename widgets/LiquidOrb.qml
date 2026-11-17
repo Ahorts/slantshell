@@ -91,15 +91,32 @@ Item {
         }
     }
 
+    // The number is two-tone: light above the liquid, dark where the liquid covers it, split exactly at the
+    // surface, so it reads on a full pale orb as well as an empty dark one.
     Text {
+        id: valLight
         anchors.centerIn: canvas
         text: orb.valueText
         color: Theme.fg
-        style: Text.Outline
-        styleColor: Qt.rgba(0, 0, 0, 0.45)
         font.family: Theme.font
         font.pixelSize: Theme.fontSize
         font.bold: true
+    }
+    Item {
+        // the part of the orb under the surface
+        readonly property real surfaceY: canvas.y + canvas.height / 2 + 33 - 66 * Math.max(0, Math.min(1, orb.shown))
+        x: canvas.x
+        y: surfaceY
+        width: canvas.width
+        height: Math.max(0, canvas.y + canvas.height - surfaceY)
+        clip: true
+        Text {
+            x: valLight.x - parent.x
+            y: valLight.y - parent.y
+            text: orb.valueText
+            color: Theme.bg
+            font: valLight.font
+        }
     }
 
     Text {
