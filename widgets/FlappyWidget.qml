@@ -14,8 +14,17 @@ Item {
     // ---- field ----
     readonly property real areaW: 860
     readonly property real areaH: 380
-    readonly property real wireY: 64
-    readonly property real perchX: areaW - 140
+    // The wire hangs from the right bar's front corner (Theme.barAnchorX/Y, screen coordinates) to past the screen's
+    // right edge, sagging in between; the bird perches at the lowest point. This item sits at the screen's right
+    // edge, 60 px from the top (see Background.qml).
+    readonly property real offX: parent ? parent.width - areaW : 0
+    readonly property real ax: (Theme.barAnchorX >= 0 ? Theme.barAnchorX - offX : areaW - 420) + 3
+    readonly property real ay: Theme.barAnchorY - 60 - 1
+    readonly property real bx: areaW + 30
+    readonly property real by: ay + 4
+    readonly property real sag: 74
+    readonly property real wireY: (ay + by) / 2 + sag
+    readonly property real perchX: (ax + bx) / 2
     readonly property real birdX: perchX               // the bird stays in this column while playing
     readonly property real birdR: 11
     readonly property real gravity: 980
@@ -160,19 +169,21 @@ Item {
             strokeColor: Qt.rgba(Theme.fg.r, Theme.fg.g, Theme.fg.b, 0.35)
             strokeWidth: 1.4
             fillColor: "transparent"
-            startX: game.perchX - 190; startY: game.wireY - 8
-            PathQuad { x: game.areaW + 60; y: game.wireY - 4; controlX: game.perchX + 30; controlY: game.wireY + 10 }
+            startX: game.ax; startY: game.ay
+            // quadratic whose midpoint is the perch: control = 2*mid - (a + b)/2
+            PathQuad { x: game.bx; y: game.by; controlX: game.perchX; controlY: 2 * game.wireY - (game.ay + game.by) / 2 }
         }
     }
     // a small insulator where the wire ends
     Rectangle {
-        x: game.perchX - 194; y: game.wireY - 13
-        width: 8; height: 10; radius: 2
+        // the clamp holding the wire to the bar's corner
+        x: game.ax - 4; y: game.ay - 2
+        width: 8; height: 6; radius: 2
         color: Qt.rgba(Theme.fg.r, Theme.fg.g, Theme.fg.b, 0.4)
     }
     Text {
         visible: game.best > 0 && game.phase === "perched"
-        x: game.perchX - 186; y: game.wireY + 8
+        x: game.perchX - width / 2; y: game.wireY + 30
         text: "best " + game.best
         color: Theme.fgDim
         opacity: 0.6

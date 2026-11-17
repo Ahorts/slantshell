@@ -50,6 +50,9 @@ Singleton {
     // Lightning on borders (bar panels, island, highlights, and Hyprland window borders via WindowSparks.qml).
     // TEMPORARY demo option: `qs -p <dir> ipc call lightning toggle` (or on/off).
     property bool lightning: true
+    // where the right bar panel's front (bottom-left) corner is on screen: Flappy's wire hangs from it
+    property real barAnchorX: -1
+    property real barAnchorY: 48
     // One shared clock for every lightning border, so they all redraw on the same frames (a window then repaints
     // ~25 times a second at most instead of once per bolt). Even ticks are the "resting" rate.
     property int sparkTick: 0

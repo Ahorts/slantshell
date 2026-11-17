@@ -799,6 +799,8 @@ PanelWindow {
     SkewPanel {
         id: rightPill
         glass: true
+        Binding { target: Theme; property: "barAnchorX"; value: rightPill.x }
+        Binding { target: Theme; property: "barAnchorY"; value: rightPill.y + rightPill.height }
         outlineSpark: Theme.lightning ? 0.12 : 0
         opacity: Math.min(1, bar.introR * 1.5)
         transform: Translate { y: (1 - bar.introR) * -70 }
