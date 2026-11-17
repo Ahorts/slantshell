@@ -55,42 +55,66 @@ Item {
         transform: Matrix4x4 { matrix: Qt.matrix4x4(1, -root.slant / shard.height, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1) }
     }
 
-    // ---- equaliser out of the shard's top edge (music only) ----
-    property var levels: new Array(24).fill(0)
+    // ---- equaliser along the whole top edge of the shard (music only) ----
+    // 48 bars spread from the shard's top-left corner to its top-right, each blended between the two nearest cava
+    // bands (so neighbours flow into each other), with a slight hump towards the middle. Levels are eased every
+    // frame (fast rise, slow fall) instead of jumping 20 times a second.
+    readonly property int eqN: 48
+    property var target: new Array(eqN).fill(0)
+    property var levels: new Array(eqN).fill(0)
     property real peak: 0
+    readonly property bool eqLive: (Audio.playing || peak > 0.01) && visible
     Timer {
         interval: 50
-        running: (Audio.playing || root.peak > 0.01) && root.visible
+        running: root.eqLive
         repeat: true
         onTriggered: {
-            const src = Audio.bars, out = root.levels.slice();
-            let pk = 0;
-            for (let i = 0; i < out.length; i++) {
-                const v = Audio.playing && src.length ? (src[Math.floor(i * src.length / out.length)] ?? 0) / 100 : 0;
-                out[i] = v > out[i] ? v : out[i] * 0.82;
-                pk = Math.max(pk, out[i]);
+            const src = Audio.bars, n = root.eqN, out = new Array(n);
+            for (let i = 0; i < n; i++) {
+                if (!Audio.playing || !src.length) { out[i] = 0; continue; }
+                const f = i / (n - 1) * (src.length - 1), k = Math.floor(f), t = f - k;
+                const v = ((src[k] ?? 0) * (1 - t) + (src[Math.min(src.length - 1, k + 1)] ?? 0) * t) / 100;
+                out[i] = v * (0.55 + 0.45 * Math.sin(Math.PI * (i + 0.5) / n));
             }
-            root.levels = out;
+            root.target = out;
+        }
+    }
+    FrameAnimation {
+        running: root.eqLive
+        onTriggered: {
+            const dt = Math.min(frameTime, 0.05), cur = root.levels.slice(), tg = root.target;
+            let pk = 0;
+            for (let i = 0; i < cur.length; i++) {
+                const rate = tg[i] > cur[i] ? 22 : 7;          // rise fast, fall gently
+                cur[i] += (tg[i] - cur[i]) * Math.min(1, rate * dt);
+                pk = Math.max(pk, cur[i]);
+            }
+            root.levels = cur;
             root.peak = pk;
         }
     }
-    Row {
-        x: shard.x + root.slant + 60
+    Item {
+        id: eq
+        x: shard.x + root.slant + 4
         y: shard.y - 1
-        spacing: 4
+        width: shard.width - root.slant - 8
         opacity: Math.min(1, root.peak * 3)
-        visible: root.peak > 0.01
+        visible: root.peak > 0.005
+        readonly property real step: width / root.eqN
         Repeater {
-            model: 24
+            model: root.eqN
             Rectangle {
                 required property int index
-                readonly property real h: 2 + 34 * root.levels[index]
-                width: 6; height: h
+                readonly property real h: 1.5 + 30 * root.levels[index]
+                x: index * eq.step + 1
                 y: -h
-                color: Qt.tint(Theme.accent, Qt.rgba(Theme.accent2.r, Theme.accent2.g, Theme.accent2.b, index / 24))
+                width: Math.max(2, eq.step - 3); height: h
+                radius: 1
+                color: Qt.tint(Theme.accent, Qt.rgba(Theme.accent2.r, Theme.accent2.g, Theme.accent2.b, index / root.eqN))
                 opacity: 0.85
                 antialiasing: true
-                transform: Matrix4x4 { matrix: Qt.matrix4x4(1, -0.35, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1) }
+                // lean with the shard's edges
+                transform: Matrix4x4 { matrix: Qt.matrix4x4(1, -root.slant / shard.height, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1) }
             }
         }
     }
