@@ -288,7 +288,12 @@ PanelWindow {
         }
         if (!item) return;
         if (item.kind === "window") focusWindow(item.ref);
-        else if (item.kind === "app") { countLaunch(item.ref.id); item.ref.execute(); }
+        else if (item.kind === "app") {
+            countLaunch(item.ref.id);
+            // terminal apps (Neovim, btop, ...) need a terminal around them; execute() alone would run them headless
+            if (item.ref.runInTerminal) Quickshell.execDetached(["kitty", "-e"].concat(item.ref.command));
+            else item.ref.execute();
+        }
         else if (item.kind === "action") Quickshell.execDetached(item.cmd);
         closeRequested();
     }
