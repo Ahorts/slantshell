@@ -108,11 +108,19 @@ PanelWindow {
     }
 
     Process { id: wsSwitch }
-    // Scroll over the workspaces to move between them: up = previous, down = next
-    // (cycles through the workspaces that exist).
+    // Scroll over the workspaces to move between them: up = previous, down = next. Goes through empty workspaces
+    // too (1..10), not only the ones that have windows.
     property real wheelAccum: 0
     function stepWorkspace(delta) {
-        Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.focus({ workspace = \"e" + (delta > 0 ? "+1" : "-1") + "\" })"]);
+        const cur = Hyprland.focusedWorkspace?.id ?? 1;
+        const n = Math.max(1, Math.min(10, cur + (delta > 0 ? 1 : -1)));
+        if (n !== cur) gotoWorkspace(n);
+    }
+    // the highest workspace with windows (or focused): one empty slot after it is offered as a "new" workspace
+    readonly property int lastUsedWs: {
+        let m = Hyprland.focusedWorkspace?.id ?? 1;
+        for (const w of Hyprland.workspaces.values) if (w.id > m && w.id <= 9) m = w.id;
+        return m;
     }
     function gotoWorkspace(n) {
         // Hyprland 0.5x uses Lua dispatchers, so go through hyprctl with the Lua form.
@@ -334,12 +342,13 @@ PanelWindow {
                         readonly property int wsId: index + 1
                         readonly property bool focused: Hyprland.focusedWorkspace?.id === wsId
                         readonly property bool occupied: Hyprland.workspaces.values.some(w => w.id === wsId)
-                        readonly property bool shown: focused || occupied
+                        readonly property bool ghost: !focused && !occupied && wsId === bar.lastUsedWs + 1
+                        readonly property bool shown: focused || occupied || ghost
 
                         // Fade/slide workspaces in and out instead of popping.
                         Layout.preferredWidth: shown ? (focused ? 36 : 28) : 0
                         Layout.preferredHeight: 24
-                        opacity: shown ? 1 : 0
+                        opacity: shown ? (ghost ? 0.45 : 1) : 0
                         visible: opacity > 0.01
                         skew: -6
                         strokeWidth: 0
