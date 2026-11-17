@@ -46,12 +46,50 @@ PanelWindow {
     // 0 = Wi-Fi, 1 = Bluetooth
     property int tab: 0
     property bool showInfo: true              // true = telemetry satellites around connected hub; false = network/device picker
+    // What the satellites actually show. Switching details <-> list: the current satellites swing outward and fade,
+    // the core ripples, then the new set swoops in from outside and settles into orbit (`swap` 0 -> 1 -> 0).
+    // (During the Wi-Fi/Bluetooth warp, or while closed, it just follows at once.)
+    property bool shownInfo: true
+    property real swap: 0
+    onSwapChanged: beamCanvas.requestPaint()
+    onShowInfoChanged: {
+        if (!wanted || warpAnim.running) { swapAnim.stop(); swap = 0; shownInfo = showInfo; return; }
+        swapAnim.restart();
+    }
+    SequentialAnimation {
+        id: swapAnim
+        NumberAnimation { target: win; property: "swap"; to: 1; duration: 200; easing.type: Easing.InCubic }
+        ScriptAction { script: { win.shownInfo = win.showInfo; rippleAnim.restart(); } }
+        NumberAnimation { target: win; property: "swap"; to: 0; duration: 560; easing.type: Easing.OutBack; easing.overshoot: 1.25 }
+    }
     property int hoveredSat: -1
     property string connectingName: ""
     property string demoConnectedWifi: "Starlink-6GHz-Pro"
     property string demoConnectedBt: "Sony WH-1000XM5"
 
-    onForceTabChanged: if (forceTab >= 0) tab = forceTab % 2
+    onForceTabChanged: if (forceTab >= 0) requestTab(forceTab % 2)
+
+    // ---- switching Wi-Fi <-> Bluetooth: a warp ----
+    // The satellites are pulled into the core in a spiral (`warp` 0 -> 1), the core turns edge-on; at that moment
+    // the tab swaps (data and colour), a shockwave rings out, the core turns back face-on in the new colour and the
+    // new satellites fly out of it into their orbit. The tab pill underneath glides across at once.
+    property int tabTarget: 0
+    property real ripple: 1
+    NumberAnimation { id: rippleAnim; target: win; property: "ripple"; from: 0; to: 1; duration: 620; easing.type: Easing.OutCubic }
+    property real warp: 0
+    onWarpChanged: beamCanvas.requestPaint()
+    function requestTab(i) {
+        if (i === tabTarget && !warpAnim.running) return;
+        tabTarget = i;
+        if (!wanted) { tab = i; showInfo = true; return; }
+        warpAnim.restart();
+    }
+    SequentialAnimation {
+        id: warpAnim
+        NumberAnimation { target: win; property: "warp"; to: 1; duration: 230; easing.type: Easing.InCubic }
+        ScriptAction { script: { win.tab = win.tabTarget; win.showInfo = true; win.orbitAngle += 0.9; shockAnim.restart(); } }
+        NumberAnimation { target: win; property: "warp"; to: 0; duration: 520; easing.type: Easing.OutBack; easing.overshoot: 1.2 }
+    }
     onWantedChanged: {
         if (wanted) {
             disconnectFill = 0;
@@ -168,7 +206,7 @@ PanelWindow {
 
     readonly property var satellites: {
         if (!radioOn) return [];
-        if (showInfo && isConnected) {
+        if (shownInfo && isConnected) {
             if (tab === 0) {
                 return [
                     { name: sigText,          sub: "Signal Strength", icon: "󰤨", kind: "info", ring: 0 },
@@ -216,9 +254,10 @@ PanelWindow {
 
     function satPos(idx, total, ring) {
         const n = Math.max(1, total);
-        const ang = win.orbitAngle + (idx / n) * Math.PI * 2 - Math.PI / 2;
-        const rx = 250 + (ring || 0) * 44;
-        const ry = 152 + (ring || 0) * 28;
+        const ang = win.orbitAngle + (idx / n) * Math.PI * 2 - Math.PI / 2 + win.warp * 2.2 + win.swap * 0.9;
+        const k = Math.max(0, 1 - win.warp) * (1 + 0.6 * win.swap);
+        const rx = (250 + (ring || 0) * 44) * k;
+        const ry = (152 + (ring || 0) * 28) * k;
         return {
             x: win.cx + Math.cos(ang) * rx,
             y: win.cy + Math.sin(ang) * ry
@@ -319,7 +358,7 @@ PanelWindow {
         focus: true
         Keys.onPressed: event => {
             if (event.key === Qt.Key_Escape) win.closeRequested();
-            else if (event.key === Qt.Key_Tab) { win.tab = (win.tab + 1) % 2; win.showInfo = true; }
+            else if (event.key === Qt.Key_Tab) win.requestTab((win.tabTarget + 1) % 2);
             else if (event.key === Qt.Key_Space) win.showInfo = !win.showInfo;
             else return;
             event.accepted = true;
@@ -464,8 +503,46 @@ PanelWindow {
                 NumberAnimation { to: 1.0; duration: 520; easing.type: Easing.OutQuint }
             }
 
-            scale: bumpScale * (coreMouse.containsMouse ? 1.04 : 1.0)
+            scale: bumpScale * (coreMouse.containsMouse ? 1.04 : 1.0) * (1 - 0.12 * Math.min(1, win.warp))
             Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+            transform: Rotation {
+                origin.x: coreHolder.width / 2; origin.y: coreHolder.height / 2
+                axis { x: 0; y: 1; z: 0 }
+                angle: 88 * Math.min(1, win.warp)
+            }
+            // ripple when switching details <-> list: two thin rings
+            Repeater {
+                model: 2
+                Rectangle {
+                    id: rip
+                    required property int index
+                    anchors.centerIn: parent
+                    width: parent.width; height: width; radius: width / 2
+                    color: "transparent"
+                    border.color: win.activeColor
+                    border.width: 1.5
+                    opacity: 0
+                    scale: 1 + 0.9 * win.ripple
+                    Connections { target: win; function onRippleChanged() { rip.opacity = Math.max(0, (1 - win.ripple) * 0.7 - rip.index * 0.25 * (1 - win.ripple)); rip.scale = 1 + (0.6 + 0.5 * rip.index) * win.ripple; } }
+                }
+            }
+            // shockwave when the tab swaps
+            Rectangle {
+                id: shock
+                anchors.centerIn: parent
+                width: parent.width; height: width; radius: width / 2
+                color: "transparent"
+                border.color: win.activeColor
+                border.width: 3
+                opacity: 0
+                z: -2
+                ParallelAnimation {
+                    id: shockAnim
+                    NumberAnimation { target: shock; property: "scale"; from: 1; to: 3.2; duration: 650; easing.type: Easing.OutCubic }
+                    NumberAnimation { target: shock; property: "opacity"; from: 0.9; to: 0; duration: 650; easing.type: Easing.OutCubic }
+                    NumberAnimation { target: shock; property: "border.width"; from: 4; to: 0.5; duration: 650 }
+                }
+            }
 
             // Breathing outer halo
             Rectangle {
@@ -660,8 +737,8 @@ PanelWindow {
                 height: 54
                 x: win.cx + (pos.x - win.cx) * nodeGrow - width / 2
                 y: win.cy + (pos.y - win.cy) * nodeGrow - height / 2
-                scale: Math.max(0.01, nodeGrow) * (isHov ? 1.08 : 1.0)
-                opacity: Math.min(1, nodeGrow * 1.4)
+                scale: Math.max(0.01, nodeGrow * (1 - 0.75 * Math.min(1, win.warp))) * (isHov ? 1.08 : 1.0)
+                opacity: Math.min(1, nodeGrow * 1.4) * (1 - Math.min(1, win.warp)) * (1 - Math.min(1, win.swap))
                 Behavior on scale { SpringAnimation { spring: 5.4; damping: 0.48 } }
 
                 MultiEffect {
@@ -758,6 +835,16 @@ PanelWindow {
             border.color: Qt.rgba(1, 1, 1, 0.12)
             border.width: 1
 
+            // the active-tab pill: glides to the tab you pick (springs a little), in that tab's colour
+            Rectangle {
+                x: dockRow.x + win.tabTarget * 126
+                Behavior on x { SpringAnimation { spring: 4.5; damping: 0.5; epsilon: 0.2 } }
+                anchors.verticalCenter: parent.verticalCenter
+                width: 118; height: 36; radius: 18
+                color: win.tabTarget === 0 ? Theme.accent : Theme.accent2
+                Behavior on color { ColorAnimation { duration: 260 } }
+            }
+
             RowLayout {
                 id: dockRow
                 anchors.centerIn: parent
@@ -772,10 +859,12 @@ PanelWindow {
                     Rectangle {
                         id: tabPill
                         required property var modelData
-                        readonly property bool activeTab: win.tab === modelData.idx
+                        readonly property bool activeTab: win.tabTarget === modelData.idx
                         width: 118; height: 36
                         radius: 18
-                        color: activeTab ? win.activeColor : (tabMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent")
+                        // the coloured pill is the glider below; the tab itself only lights on hover
+                        color: (!activeTab && tabMouse.containsMouse) ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
+                        z: 1
                         Behavior on color { ColorAnimation { duration: 180 } }
 
                         Row {
@@ -800,7 +889,7 @@ PanelWindow {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: { win.tab = tabPill.modelData.idx; win.showInfo = true; }
+                            onClicked: win.requestTab(tabPill.modelData.idx)
                         }
                     }
                 }
